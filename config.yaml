@@ -495,8 +495,8 @@ watch_orgs: []
 ransomware_live:
   enabled: true
   countries: [GB]               # every victim in these countries alerts (ISO codes; UK = GB); [] to turn off
-  country_priority: urgent      # urgent: phone at max priority and Alexa announces it;
-                                # high: phone with sound only (turns Alexa off for these)
+  country_priority: high        # high: phone with sound, Alexa stays quiet.
+                                # "urgent" makes Alexa announce every listing (about 40 a month for the UK)
   priority: urgent              # a watched organisation (watch_orgs / WATCH_ORGS) listed by a ransomware group
   max_age_days: 7               # ignore listings discovered longer ago than this
   url: https://api-pro.ransomware.live/victims/recent   # the 100 most recent victims, for watch_orgs

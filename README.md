@@ -1,10 +1,11 @@
 # Threat Notifier
 
-**Threat Notifier is a free, self-hosted early-warning system for security teams, MSPs and anyone who looks after other people's IT.** Every 30 minutes it checks the sources that matter: CISA's Known Exploited Vulnerabilities, new CVEs from NVD scored by EPSS, ransomware leak sites, security news, and posts from well-known researchers on Mastodon and Bluesky. When something is exploited, critical or about a vendor you depend on, it pushes an alert to your phone, and the urgent ones are read out by Alexa. It runs entirely on GitHub Actions: no server to maintain, no AI, no paid APIs, and every threshold, list and schedule lives in one file, `config.yaml`.
+**Threat Notifier is a free, self-hosted way to stay on top of what's happening in security: what's being exploited, which ransomware groups are active in your country, and what the people who track this are saying.** Every 30 minutes it checks the sources that matter: CISA's Known Exploited Vulnerabilities, new CVEs from NVD scored by EPSS, ransomware leak sites, security news, and posts from well-known researchers on Mastodon and Bluesky. When something is exploited, critical or about a vendor you depend on, it pushes an alert to your phone, and the urgent ones are read out by Alexa. It's a personal-awareness tool for security people, MSP engineers and anyone who looks after IT, not a service for monitoring specific companies. It runs entirely on GitHub Actions: no server to maintain, no AI, no paid APIs, and every threshold, list and schedule lives in one file, `config.yaml`.
 
 **What you get**
 
-- **A phone alert within about 30 minutes** of a new KEV entry, a CVE that's likely to be exploited, a ransomware victim in your country, or a zero-day headline about a vendor you use.
+- **A phone alert within about 30 minutes** of a new KEV entry, a CVE that's likely to be exploited, or a zero-day headline about a vendor you use.
+- **A running picture of ransomware in your country.** Every leak-site listing there arrives with the group's name and the victim's sector, so you can see which groups are active in your market and who they're hitting.
 - **Alexa announcements for the urgent ones**, with quiet hours so she never wakes you. Anything urgent overnight is held and read out in the morning.
 - **One alert per story.** When five outlets cover the same zero-day, you get one alert that lists the other four.
 - **Little noise.** A tiered vendor watchlist builds itself from CISA's history, EPSS filters out CVEs nobody is attacking, and keyword filters keep noisy feeds in check.
@@ -22,7 +23,7 @@
 5. [How alerts are ranked](#how-alerts-are-ranked)
 6. [Phone or Alexa: choosing where alerts go](#phone-or-alexa-choosing-where-alerts-go)
 7. [Quiet hours](#quiet-hours)
-8. [Ransomware: watch countries or organisations](#ransomware-watch-countries-or-organisations)
+8. [Ransomware in your country](#ransomware-in-your-country)
 9. [Vendor watchlists](#vendor-watchlists)
 10. [News feeds](#news-feeds)
 11. [Recommended researchers (Mastodon and Bluesky)](#recommended-researchers-mastodon-and-bluesky)
@@ -62,7 +63,7 @@ Everything below has a free option.
 | A [GitHub](https://github.com) account | Yes | Runs the notifier on a schedule (GitHub Actions) |
 | A phone with the [ntfy](https://ntfy.sh) app | Yes (or Telegram, or Pushover) | Receives the alerts |
 | A free [NVD API key](https://nvd.nist.gov/developers/request-an-api-key) | Recommended | Makes CVE lookups faster and more reliable |
-| A free [ransomware.live API key](https://my.ransomware.live) | For ransomware alerts | Victims posted on ransomware leak sites |
+| A free [ransomware.live API key](https://my.ransomware.live) | For ransomware alerts | Victims posted on ransomware leak sites (free for non-commercial use) |
 | An Amazon Echo and a free [Voice Monkey](https://voicemonkey.io) account | Optional | Alexa reads out urgent alerts |
 
 ---
@@ -99,7 +100,7 @@ gh secret set NTFY_TOPIC --repo YOUR-NAME/YOUR-REPO
 Open `config.yaml` (click it on GitHub, then the pencil icon) and check these three things:
 
 - **`timezone`**: your time zone, for example `Europe/London` or `America/New_York`. It controls quiet hours.
-- **`ransomware_live.countries`**: whose ransomware victims you want to hear about. The default is `[GB]` (the UK); use `[US]`, `[IE, GB]`, or `[]` to turn this off. See [Ransomware](#ransomware-watch-countries-or-organisations).
+- **`ransomware_live.countries`**: the countries whose ransomware activity you want to follow. The default is `[GB]` (the UK); use `[US]`, `[IE, GB]`, or `[]` to turn this off. See [Ransomware](#ransomware-in-your-country).
 - **`alexa.quiet_hours`**: when Alexa must stay quiet. See [Quiet hours](#quiet-hours).
 
 Commit the change. Everything else can wait.
@@ -129,7 +130,7 @@ Every key goes in as a **GitHub Actions secret** (see [Quick start, step 3](#3-a
 | `RANSOMWARE_LIVE_API_KEY` | For ransomware alerts | Ransomware leak-site victims |
 | `VOICEMONKEY_TOKEN` | For Alexa | Lets the notifier make Alexa speak |
 | `VOICEMONKEY_DEVICE` | For Alexa | Which Echo speaks |
-| `WATCH_ORGS` | Optional | Your clients and suppliers to watch on leak sites |
+| `WATCH_ORGS` | Optional | Specific organisations to watch on leak sites ([personal use only](#watching-specific-organisations-optional)) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Optional | Also (or instead) send to Telegram |
 | `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY` | Optional | Also (or instead) send to Pushover |
 | `NTFY_TOKEN` | Optional | Only for an access-protected ntfy topic |
@@ -148,11 +149,13 @@ Free. Without a key NVD allows 5 requests per 30 seconds; with one, 50.
 
 ### ransomware.live (leak sites): `RANSOMWARE_LIVE_API_KEY`
 
-Free for non-commercial use.
+Free for non-commercial use, which is how the notifier is meant to be used: as a personal-awareness tool that keeps you up to date on ransomware activity in your country.
 
 1. Sign up at [my.ransomware.live](https://my.ransomware.live).
 2. Copy your API key from the dashboard into the `RANSOMWARE_LIVE_API_KEY` secret.
-3. Read their [Terms & Conditions](https://www.ransomware.live/t&c). Commercial use, including paid security services, needs their written approval, and the source must be credited (alerts end with "Source: Ransomware.live").
+3. Read their [Terms & Conditions](https://www.ransomware.live/t&c). The source must be credited; every alert ends with "Source: Ransomware.live".
+
+**Anyone using it as part of a paid service needs ransomware.live's written approval first.** That includes an MSSP or MSP watching its clients, feeding the alerts into a service you sell, or running the notifier for a customer. Ask them at api@ransomware.live before you start.
 
 No key? Set `ransomware_live.countries: []` in `config.yaml`. Otherwise every run summary shows a reminder to add one.
 
@@ -179,7 +182,7 @@ Pushover is a paid app (a one-off licence after a 30-day trial) with strong urge
 
 ### Watched organisations (optional): `WATCH_ORGS`
 
-A comma-separated list of client and supplier names or domains, for example `Acme Holdings, acme.com, Globex`. See [Ransomware](#ransomware-watch-countries-or-organisations).
+A comma-separated list of organisation names or domains, for example `Acme Holdings, acme.com, Globex`. Most people leave it empty. See [Watching specific organisations](#watching-specific-organisations-optional).
 
 ### Sources that need no key
 
@@ -196,8 +199,8 @@ A comma-separated list of client and supplier names or domains, for example `Acm
 
 | Priority | What triggers it | Where it goes |
 | --- | --- | --- |
-| **Urgent** | A new KEV entry with known ransomware use or on a core-watchlist vendor · a core-vendor critical CVE with EPSS 10%+ · any critical with EPSS 50%+ · a zero-day or actively-exploited headline naming a core vendor · a breach headline naming an MSP-critical vendor · a watched organisation on a leak site · a leak-site victim in your countries (while `country_priority: urgent`) | Phone at maximum priority **plus Alexa** (one announcement per run; held during quiet hours) |
-| **High** | Any other new KEV entry · a CVE at CVSS 7+ with EPSS 10%+ · a core-vendor critical · zero-day or actively-exploited headlines · a breach headline naming a core vendor · a researcher's post with a zero-day word and a core vendor · leak-site victims in your countries (with `country_priority: high`) | Phone, with sound |
+| **Urgent** | A new KEV entry with known ransomware use or on a core-watchlist vendor · a core-vendor critical CVE with EPSS 10%+ · any critical with EPSS 50%+ · a zero-day or actively-exploited headline naming a core vendor · a breach headline naming an MSP-critical vendor · a watched organisation on a leak site · a leak-site victim in your countries, if you set `country_priority: urgent` | Phone at maximum priority **plus Alexa** (one announcement per run; held during quiet hours) |
+| **High** | Any other new KEV entry · a CVE at CVSS 7+ with EPSS 10%+ · a core-vendor critical · zero-day or actively-exploited headlines · a breach headline naming a core vendor · a researcher's post with a zero-day word and a core vendor · leak-site victims in your countries (`country_priority: high`, the default) | Phone, with sound |
 | **Normal** | A critical CVE on an extended-watchlist vendor · news and posts that match your keywords | Phone, with sound (or silent, with `normal_silent: true`) |
 
 "Critical" means CVSS 9.0 or higher, exploitable over the network with no login. All of these thresholds are in `config.yaml`.
@@ -211,7 +214,8 @@ By default only **urgent** alerts reach Alexa; high and normal alerts go to your
 | You want | Set this in `config.yaml` |
 | --- | --- |
 | No Alexa at all | `alexa.enabled: false` (or don't add the Voice Monkey secrets) |
-| Ransomware victims in your countries on the phone only | `ransomware_live.country_priority: high` |
+| Ransomware victims in your countries on the phone only | `ransomware_live.country_priority: high` (the default) |
+| Alexa announces every ransomware victim in your countries | `ransomware_live.country_priority: urgent` (about 40 announcements a month for the UK) |
 | Watched organisations on leak sites on the phone only | `ransomware_live.priority: high` |
 | Researchers' posts never on Alexa | `social.hot_vendor_priority: high` (the default; `urgent` makes Alexa read them) |
 | Alexa speaks high alerts too | `alexa.min_priority: high` (uses the monthly allowance much faster) |
@@ -223,6 +227,8 @@ By default only **urgent** alerts reach Alexa; high and normal alerts go to your
 ## Quiet hours
 
 Alexa never speaks during quiet hours. Urgent announcements that arrive then are **held and read out when quiet hours end**, starting "Catching up after quiet hours". Your phone still gets every alert straight away, just **without sound**.
+
+**Why it works this way:** urgent alerts overnight stay silent on the phone and are read out by Alexa when quiet hours end, so you start the day with a briefing instead of being woken by news.
 
 ```yaml
 timezone: Europe/London
@@ -245,35 +251,32 @@ delivery:
 
 ---
 
-## Ransomware: watch countries or organisations
+## Ransomware in your country
 
-Data comes from [ransomware.live](https://www.ransomware.live), which tracks the leak sites where ransomware groups post their victims. You need the free [API key](#ransomwarelive-leak-sites-ransomware_live_api_key). There are two ways to use it, and you can use both together.
+Data comes from [ransomware.live](https://www.ransomware.live), which tracks the leak sites where ransomware groups post their victims. You need the free [API key](#ransomwarelive-leak-sites-ransomware_live_api_key).
 
-**Option 1: every victim in your countries** (the default; no names needed)
+**The main use is following the ransomware landscape in your market.** Every time a group lists a victim in one of your countries, you get an alert naming the group and the victim's sector. Over a few weeks that shows you which groups are active where you work, which sectors they're going after, and when things are getting busier, without having to check a leak-site tracker yourself.
 
 ```yaml
 ransomware_live:
   countries: [GB]            # ISO country codes; UK is accepted for GB. [] turns this off
-  country_priority: urgent   # urgent: phone + Alexa · high: phone only
-```
-
-Good when you want to know about every attack in your market. Alexa says, for example, "An organisation in the UK has been listed on a ransomware leak site. Check your phone." The victim's name goes to your phone only. At about 9 UK listings a week, this uses roughly 40 of Alexa's 150 monthly announcements.
-
-**Option 2: only organisations you name** (clients, suppliers, partners)
-
-Put them in the `WATCH_ORGS` secret, comma separated, for example `Acme Holdings, acme.com, Globex`. There's also `watch_orgs:` in `config.yaml`, but anything in that file is visible to anyone who can see the repository, so prefer the secret.
-
-```yaml
-ransomware_live:
-  priority: urgent           # a watched organisation: urgent (phone + Alexa) or high (phone only)
+  country_priority: high     # high: phone with sound · urgent: Alexa announces every listing too
   max_age_days: 7            # ignore listings discovered longer ago than this
 ```
 
-- **Matching** is on whole words in the victim's name or website, case-insensitive: `acme` matches "ACME Ltd" and `acme.com`, but not "Acmesupplies". Very short names can match unrelated companies, so prefer full names or domains.
-- **Your list never leaves GitHub.** Each run downloads the 100 most recent victims and matches them on GitHub's machine.
-- **Names stay private.** Watched names are masked in logs, run summaries only say "a watched organisation was listed", the saved state keeps a hash, and Alexa never says a name.
+- **What arrives:** the phone alert has the victim, the group, the discovery and attack dates, the website and the sector, with a link to the listing. By default it's **high** priority, so your phone rings and Alexa stays quiet.
+- **Hearing them on Alexa:** set `country_priority: urgent` and Alexa says, for example, "An organisation in the UK has been listed on a ransomware leak site. Check your phone." She never says the name. At about 9 UK listings a week, this would use roughly 40 of Alexa's 150 monthly announcements.
+- **Nothing is missed:** each run looks up this month's listings for your countries (and last month's near the start of a month), so a skipped GitHub run doesn't lose any. Each listing alerts once.
+- **Names stay on your phone.** Run summaries and dry runs show only "an organisation in GB was listed", the saved state keeps a hash, and Alexa never says a name. This also keeps ransomware.live's data off public run pages.
+- **It's for your own awareness**, within ransomware.live's free non-commercial terms. Using it as part of a paid service needs their written approval (see [Keys and tokens](#ransomwarelive-leak-sites-ransomware_live_api_key)).
 
 To turn ransomware alerts off completely, set `countries: []` and leave `WATCH_ORGS` empty (or set `enabled: false`).
+
+### Watching specific organisations (optional)
+
+You can also name organisations, and a listing that matches one alerts at `ransomware_live.priority` (default `urgent`), wherever the victim is. Put them in the `WATCH_ORGS` secret, comma separated, for example `Acme Holdings, acme.com`. (`watch_orgs:` in `config.yaml` works too, but anyone who can see the repository can read it.)
+
+This isn't a client-monitoring feature. An MSSP or MSP will normally hear about a client incident from the client, or from its own tools, well before a leak site posts it, and watching clients as part of a paid service needs ransomware.live's written approval. Matching is on whole words in the victim's name or website, the list never leaves GitHub, and matched names are masked in logs.
 
 ---
 
@@ -449,7 +452,7 @@ Edit `config.yaml`, commit, and the next run uses it. Defaults are what ships in
 | `watch_orgs` | `[]` | Organisations to watch; combined with the `WATCH_ORGS` secret (prefer the secret) |
 | `ransomware_live.enabled` | `true` | Use ransomware.live |
 | `ransomware_live.countries` | `[GB]` | Every victim in these countries alerts; `[]` turns it off |
-| `ransomware_live.country_priority` | `urgent` | `urgent` = phone + Alexa, `high` = phone only |
+| `ransomware_live.country_priority` | `high` | `high` = phone only, `urgent` = phone + Alexa for every listing |
 | `ransomware_live.priority` | `urgent` | Priority for a watched organisation |
 | `ransomware_live.max_age_days` | `7` | Ignore listings discovered longer ago |
 | `ransomware_live.url`, `country_url` | ransomware.live API addresses | Only change if their API moves |
@@ -499,7 +502,7 @@ All of these are under the **Actions** tab, **Run workflow**.
 | threat-notifier | `dry-run` | Shows in the run log what would be sent, sends nothing, saves nothing |
 | threat-notifier | `run` | A normal run, the same as the schedule |
 | drill | `cve` + a CVE ID | Sends one real CVE as if NVD had just published it, labelled DRILL |
-| drill | `ransomware` | Sends one real recent listing from your countries, labelled DRILL |
+| drill | `ransomware` | Sends one real recent listing from your countries, labelled DRILL (Alexa reads it only with `country_priority: urgent`) |
 | feed-check | send on/off | Tests every feed now |
 
 Drills never touch the saved state. Tick **ignore quiet hours** to hear Alexa at night.
@@ -524,7 +527,7 @@ python tools/feed_check.py                           # test every feed (add --se
 - **Timing:** GitHub can delay or occasionally skip scheduled runs when it's busy, so alerts arrive within about 30 minutes, sometimes later.
 - **Voice Monkey:** the free plan allows 200 requests a month; the notifier stops at `monthly_cap` (150).
 - **NVD:** 5 requests per 30 seconds without a key, 50 with one.
-- **ransomware.live:** free for non-commercial use with credit; its data refreshes every 30 minutes.
+- **ransomware.live:** free for non-commercial use with credit, which covers the notifier as a personal-awareness tool; its data refreshes every 30 minutes. Anyone using it as part of a paid service, including watching clients for an MSSP, needs ransomware.live's written approval first.
 - **Pushover:** a one-off licence after the trial. ntfy and Telegram are free.
 
 ---
@@ -533,7 +536,7 @@ python tools/feed_check.py                           # test every feed (add --se
 
 - **Keys and tokens live only in GitHub Actions secrets**, never in the repository. Don't paste them into `config.yaml`, issues or chats.
 - **Your ntfy topic name is effectively a password.** Make it long and random, or [protect it](https://docs.ntfy.sh/config/#access-control).
-- **Client names belong in the `WATCH_ORGS` secret**, especially if your repository is public.
+- **Watched organisation names belong in the `WATCH_ORGS` secret**, especially if your repository is public.
 - **Ransomware victim names go to your phone only.** They're kept out of logs, run summaries and the saved state, and Alexa never says them.
 
 ---
