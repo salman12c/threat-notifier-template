@@ -31,10 +31,11 @@
 13. [Every setting in config.yaml](#every-setting-in-configyaml)
 14. [Testing: test runs, dry runs and drills](#testing-test-runs-dry-runs-and-drills)
 15. [Costs and limits](#costs-and-limits)
-16. [Privacy and security](#privacy-and-security)
-17. [Troubleshooting](#troubleshooting)
-18. [Data sources and credits](#data-sources-and-credits)
-19. [License](#license)
+16. [Reliable runs (recommended)](#reliable-runs-recommended)
+17. [Privacy and security](#privacy-and-security)
+18. [Troubleshooting](#troubleshooting)
+19. [Data sources and credits](#data-sources-and-credits)
+20. [License](#license)
 
 ---
 
@@ -116,6 +117,10 @@ Run **threat-notifier** once more with **run**, or just wait for the schedule. T
 ### 7. Check after a day
 
 Open any run under **Actions** and scroll to its summary. It shows what was reviewed, what was sent and any **source errors** (a feed that has moved, for example). A source that fails 12 runs in a row also sends you one warning.
+
+### 8. Make the runs reliable (recommended, 10 minutes)
+
+GitHub's own schedule is best effort and can skip runs for hours. Set up the free outside timer in [Reliable runs](#reliable-runs-recommended) so an exploited critical reaches you within about 30 minutes.
 
 ---
 
@@ -199,7 +204,7 @@ A comma-separated list of organisation names or domains, for example `Acme Holdi
 
 | Priority | What triggers it | Where it goes |
 | --- | --- | --- |
-| **Urgent** | A new KEV entry with known ransomware use or on a core-watchlist vendor · a core-vendor critical CVE with EPSS 10%+ · any critical with EPSS 50%+ · a zero-day or actively-exploited headline naming a core vendor · a breach headline naming an MSP-critical vendor · a watched organisation on a leak site · a leak-site victim in your countries, if you set `country_priority: urgent` | Phone at maximum priority **plus Alexa** (one announcement per run; held during quiet hours) |
+| **Urgent** | A new KEV entry with known ransomware use, on a core-watchlist vendor, with EPSS 50%+, or critical (CVSS 9+, network, no login) · a core-vendor critical CVE with EPSS 10%+ · any critical with EPSS 50%+ · a zero-day or actively-exploited headline naming a core vendor · a breach headline naming an MSP-critical vendor · a watched organisation on a leak site · a leak-site victim in your countries, if you set `country_priority: urgent` | Phone at maximum priority **plus Alexa** (one announcement per run; held during quiet hours) |
 | **High** | Any other new KEV entry · a CVE at CVSS 7+ with EPSS 10%+ · a core-vendor critical · zero-day or actively-exploited headlines · a breach headline naming a core vendor · a researcher's post with a zero-day word and a core vendor · leak-site victims in your countries (`country_priority: high`, the default) | Phone, with sound |
 | **Normal** | A critical CVE on an extended-watchlist vendor · news and posts that match your keywords | Phone, with sound (or silent, with `normal_silent: true`) |
 
@@ -221,6 +226,7 @@ By default only **urgent** alerts reach Alexa; high and normal alerts go to your
 | Alexa speaks high alerts too | `alexa.min_priority: high` (uses the monthly allowance much faster) |
 | Normal alerts arrive without sound | `delivery.normal_silent: true` |
 | Fewer Alexa announcements a month | Lower `alexa.monthly_cap` (default 150, the free Voice Monkey plan allows 200 requests) |
+| Exploited vulnerabilities still spoken late in a busy month | `alexa.reserve_for_vulnerabilities` (default 30): once `monthly_cap` minus this many have been spoken, Alexa only reads KEV and CVE alerts; other urgent alerts go to the phone only |
 
 ---
 
@@ -287,9 +293,9 @@ The watchlist decides when a CVE or headline is loud. It has layers, so you don'
 | Layer | What it is | Effect |
 | --- | --- | --- |
 | **From KEV history** (automatic) | Every vendor CISA has listed at least `auto_min_kev_entries` (5) times, refreshed each run | Criticals arrive at normal priority |
-| **`core`** | Edge devices, VPNs, identity, remote access and RMM, hypervisors, backup, file transfer, the biggest targets | KEV entries are urgent; criticals are high, or urgent with high EPSS; zero-day headlines are urgent |
+| **`core`** | Edge devices, VPNs, identity, remote access and RMM, hypervisors, backup, file transfer, AI coding tools with access to developer machines (Anthropic, Claude Code, Cursor), the biggest targets | KEV entries are urgent; criticals are high, or urgent with high EPSS; zero-day headlines are urgent |
 | **`msp_critical`** (part of core) | RMM, PSA, remote access and identity providers whose breach reaches every client at once (ConnectWise, Kaseya, NinjaOne, TeamViewer, Okta…) | A breach headline naming one is urgent |
-| **`extended`** | Everything else worth knowing about: productivity, dev and AI tools, web stack, SaaS, security vendors | Criticals arrive at normal priority |
+| **`extended`** | Everything else worth knowing about: productivity, other dev and AI tools, web stack, SaaS, security vendors | Criticals arrive at normal priority |
 | **`ignore`** | Sources that flood NVD with criticals nobody runs (student PHP projects, consumer routers) | Dropped (never blocks KEV alerts) |
 
 Names match as whole words, case doesn't matter. Edit the lists in `config.yaml` to match what you and your clients actually run.
@@ -319,7 +325,8 @@ news:
 ```
 
 - **Adding a feed:** add a `name` and `url` (RSS or Atom). A new feed starts silently: its first run only notes what's already there.
-- **Priority:** a headline with a `hot_keywords` word (zero-day, actively exploited, emergency patch…) is high, or urgent when it names a core vendor. A headline naming a core vendor plus a `vendor_breach_keywords` word (breached, hacked, backdoored…) is high, or urgent for MSP-critical vendors, and always gets through the keyword filter.
+- **Priority:** a headline with a `hot_keywords` word (zero-day, actively exploited, emergency patch…) is high, or urgent when it names a core vendor. A headline naming a core vendor plus a `vendor_breach_keywords` word (breached, hacked, backdoored, abused…) is high, or urgent for MSP-critical vendors, and always gets through the keyword filter.
+- **Plurals count:** with `news.match_plurals: true` (the default), `backdoor` also matches "backdoors" and `breach` matches "breaches", in every news and social word list. Vendor names are always matched exactly.
 - **One alert per story:** headlines that share a CVE ID, or the same vendor plus at least 3 significant words, are grouped into one alert that ends "Also covered by: …". Stories are remembered for 24 hours so a late outlet doesn't alert again.
 - **Reddit** sometimes blocks GitHub's servers. If r/sysadmin keeps failing, remove it.
 
@@ -398,6 +405,8 @@ Edit `config.yaml`, commit, and the next run uses it. Defaults are what ships in
 | --- | --- | --- |
 | `timezone` | `Europe/London` | Time zone for quiet hours ([list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)) |
 | `kev.enabled` | `true` | Alert on new CISA KEV entries |
+| `kev.urgent_epss` | `0.50` | EPSS that makes a new KEV entry urgent (`1.01` turns this off) |
+| `kev.urgent_if_critical` | `true` | A critical KEV entry (CVSS 9+, network, no login) is urgent whatever its EPSS; its score is looked up in NVD if needed |
 
 ### New CVEs (`cve`)
 
@@ -418,9 +427,9 @@ Edit `config.yaml`, commit, and the next run uses it. Defaults are what ships in
 | --- | --- | --- |
 | `auto_from_kev` | `true` | Add vendors from CISA's KEV history automatically |
 | `auto_min_kev_entries` | `5` | KEV entries a vendor needs to be added |
-| `core` | 88 vendors and products | Loud tier ([see above](#vendor-watchlists)) |
+| `core` | 94 vendors and products | Loud tier ([see above](#vendor-watchlists)) |
 | `msp_critical` | 24 RMM, PSA, remote access and identity vendors | Breach headlines are urgent; also counts as core |
-| `extended` | 135 vendors and products | Quieter tier |
+| `extended` | 129 vendors and products | Quieter tier |
 | `ignore` | student-project and consumer-router sources | Dropped from CVE alerts (never from KEV) |
 
 ### News (`news`)
@@ -432,7 +441,8 @@ Edit `config.yaml`, commit, and the next run uses it. Defaults are what ships in
 | `story_window_hours` | `24` | How long a story is remembered |
 | `story_min_shared_words` | `3` | Significant words two headlines must share (besides the vendor) to count as one story |
 | `hot_keywords` | zero-day, actively exploited, emergency patch… | Make a headline high, or urgent with a core vendor |
-| `vendor_breach_keywords` | breach, hacked, stolen, backdoored… | With a core vendor in the headline: high (urgent for MSP-critical) |
+| `vendor_breach_keywords` | breach, hacked, stolen, backdoored, abused… | With a core vendor in the headline: high (urgent for MSP-critical) |
+| `match_plurals` | `true` | Words in the news and social lists also match with "s" or "es" on the end |
 | `keywords` | 30 security words | The filter for feeds set to `filter: keywords` |
 | `feeds[]` | 13 feeds | Each has `name`, `url`, `filter` (`all` or `keywords`), optional `keywords` and `enabled` |
 
@@ -487,6 +497,7 @@ Edit `config.yaml`, commit, and the next run uses it. Defaults are what ships in
 | `queue_during_quiet_hours` | `true` | Hold announcements and speak them afterwards |
 | `queue_max_age_hours` | `24` | Drop held announcements older than this |
 | `monthly_cap` | `150` | Maximum announcements a month |
+| `reserve_for_vulnerabilities` | `30` | The last this-many of `monthly_cap` are only spoken for KEV and CVE alerts |
 | `voice` | `""` | Optional Alexa voice, for example `Brian` or `Amy` |
 | `chime` | `""` | Optional sound before speaking, from Voice Monkey's sound library |
 
@@ -502,6 +513,8 @@ All of these are under the **Actions** tab, **Run workflow**.
 | threat-notifier | `dry-run` | Shows in the run log what would be sent, sends nothing, saves nothing |
 | threat-notifier | `run` | A normal run, the same as the schedule |
 | drill | `cve` + a CVE ID | Sends one real CVE as if NVD had just published it, labelled DRILL |
+| drill | `kev` + a CVE ID | Sends one real KEV entry as if CISA had just added it, labelled DRILL |
+| drill | `news` + headlines | Sends headlines as if your feeds had just posted them: `Feed name: headline`, several separated by `||`. The log shows which rule words were found, and says DROPPED when a feed's filter wouldn't let one through |
 | drill | `ransomware` | Sends one real recent listing from your countries, labelled DRILL (Alexa reads it only with `country_priority: urgent`) |
 | feed-check | send on/off | Tests every feed now |
 
@@ -516,6 +529,8 @@ pip install -r requirements.txt
 python -m unittest discover -s tests                 # offline tests
 NTFY_TOPIC=your-topic python notifier.py --mode dry-run
 python tools/drill.py CVE-2026-111497                # how a CVE would be rated (dry run)
+python tools/drill.py --kev CVE-2026-111497          # as if CISA had just added it to KEV
+python tools/drill.py --news "BleepingComputer: Some headline"   # as a new feed item
 python tools/feed_check.py                           # test every feed (add --send to message your phone)
 ```
 
@@ -523,12 +538,30 @@ python tools/feed_check.py                           # test every feed (add --se
 
 ## Costs and limits
 
-- **GitHub Actions:** a private repository gets 2,000 free minutes a month, and a run every 30 minutes uses about 1,440, so don't schedule it more often. Public repositories have unlimited minutes, but GitHub pauses their schedules after 60 days without a commit, and your `config.yaml` is visible to everyone.
-- **Timing:** GitHub can delay or occasionally skip scheduled runs when it's busy, so alerts arrive within about 30 minutes, sometimes later.
-- **Voice Monkey:** the free plan allows 200 requests a month; the notifier stops at `monthly_cap` (150).
+- **GitHub Actions:** a private repository gets 2,000 free minutes a month. A run takes about 20 seconds but is billed as a full minute, so a run every 30 minutes uses about 1,440; don't schedule it more often. Public repositories have unlimited minutes, but GitHub pauses their schedules after 60 days without a commit, and your `config.yaml` is visible to everyone.
+- **Timing:** GitHub's scheduler is best effort. It can delay runs by hours and skip many of them (one new repository got 4 of 38 runs in a day), so set up [Reliable runs](#reliable-runs-recommended).
+- **Voice Monkey:** the free plan allows 200 requests a month; the notifier stops at `monthly_cap` (150), leaving 50 for tests and drills (drills aren't counted by the notifier). The last 30 are kept for KEV and CVE alerts, so an exploited critical is still announced in a busy month; other urgent alerts then go to the phone only.
 - **NVD:** 5 requests per 30 seconds without a key, 50 with one.
 - **ransomware.live:** free for non-commercial use with credit, which covers the notifier as a personal-awareness tool; its data refreshes every 30 minutes. Anyone using it as part of a paid service, including watching clients for an MSSP, needs ransomware.live's written approval first.
 - **Pushover:** a one-off licence after the trial. ntfy and Telegram are free.
+
+---
+
+## Reliable runs (recommended)
+
+GitHub's own schedule can skip runs for hours, so an exploited critical could wait half a day. A free outside timer that starts the workflow through GitHub's API fixes this: those starts run within seconds. The GitHub schedule stays as a backup.
+
+1. **A token that can only start this workflow.** On GitHub, open **Settings > Developer settings > Personal access tokens > [Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)**. Name it "threat-notifier trigger", choose the longest expiry offered (and put a reminder in your calendar), pick **Only select repositories** and your copy of this repository, and under **Repository permissions** set **Actions** to **Read and write**. Nothing else. Copy the token; GitHub shows it once. ([GitHub's guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).)
+2. **The timer.** Make a free account at [cron-job.org](https://cron-job.org) and create a cron job:
+   - **URL:** `https://api.github.com/repos/YOUR-NAME/YOUR-REPO/actions/workflows/notifier.yml/dispatches`
+   - **Schedule:** every 30 minutes
+   - **Advanced > Request method:** `POST`
+   - **Advanced > Headers:** `Accept: application/vnd.github+json`, `Authorization: Bearer YOUR-TOKEN`, `X-GitHub-Api-Version: 2022-11-28`
+   - **Advanced > Request body:** `{"ref":"main","inputs":{"mode":"run"}}`
+   - Save, then use **Test run**: GitHub answers `204` and a new **threat-notifier** run appears under **Actions**. ([The API call](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event).)
+3. **Stay within the free minutes** (private repositories). With the timer running, change the `cron` line in `.github/workflows/notifier.yml` to `"7 */3 * * *"`, a backup every 3 hours. That's about 1,440 + 240 minutes a month. Leaving both at every 30 minutes could pass 2,000 if GitHub runs every scheduled slot.
+
+Runs never overlap: a second one waits for the first, so a timer run and a scheduled run close together can't send the same alert twice. The token can only start workflows in that one repository; it can't read your secrets or change code.
 
 ---
 
@@ -553,7 +586,7 @@ python tools/feed_check.py                           # test every feed (add --se
 
 **"ransomware.live: add the free RANSOMWARE_LIVE_API_KEY secret".** Add the key, or set `ransomware_live.countries: []`.
 
-**Runs aren't exactly every 30 minutes.** GitHub delays scheduled runs when it's busy. Nothing is lost: each run catches up on what it missed.
+**Runs aren't every 30 minutes, or hours apart.** GitHub delays and skips scheduled runs when it's busy. Nothing is lost, because each run catches up on what it missed, but alerts arrive late. Set up [Reliable runs](#reliable-runs-recommended).
 
 **I changed the schedule but it didn't take effect.** The schedule is in `.github/workflows/notifier.yml` (`cron`, in UTC). It's read from the default branch.
 

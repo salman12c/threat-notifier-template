@@ -3,9 +3,13 @@
 timezone: Europe/London
 
 # CISA Known Exploited Vulnerabilities: every new entry alerts.
-# It's urgent when ransomware use is known or the vendor is on your watchlist.
+# It's urgent when ransomware use is known, the vendor is on your core watchlist, its EPSS
+# is at least urgent_epss, or it's critical (CVSS of at least cve.watchlist_min_cvss,
+# exploitable over the network with no login); otherwise high.
 kev:
   enabled: true
+  urgent_epss: 0.50             # EPSS that makes any new KEV entry urgent; 1.01 turns this off
+  urgent_if_critical: true      # a critical KEV entry is urgent whatever its EPSS
 
 # New CVEs from NVD, published in the last 30 days with CVSS of at least min_cvss.
 # A CVE alerts when EPSS reaches epss_threshold, or when it's critical (CVSS of at least
@@ -66,6 +70,13 @@ watchlist:
     - cyberark
     - delinea
   core:
+    # AI coding tools with access to developer machines
+    - anthropic
+    - claude
+    - claude code
+    - anysphere
+    - cursor ide
+    - cursor is a code editor
     # Microsoft and identity
     - windows
     - windows server
@@ -186,13 +197,7 @@ watchlist:
     - zoom
     - webex
     - slack
-    # Developer and AI tools
-    - anysphere
-    - cursor ide
-    - cursor is a code editor
-    - claude
-    - claude code
-    - anthropic
+    # Developer and AI tools (Anthropic, Claude and Cursor are on the core list)
     - openai
     - chatgpt
     - copilot
@@ -331,6 +336,9 @@ news:
   group_stories: true
   story_window_hours: 24
   story_min_shared_words: 3
+  # Plurals and "-es" forms count for hot_keywords, vendor_breach_keywords and keywords
+  # (and the social filter), so "backdoor" also matches "backdoors". false: exact words only.
+  match_plurals: true
   # Words in a headline that make an item high priority, or urgent with a watchlist match.
   hot_keywords:
     - zero-day
@@ -359,6 +367,7 @@ news:
     - stolen
     - malicious update
     - backdoored
+    - abused
   # Feeds set to "keywords" only alert when the title or summary has one of these.
   keywords:
     - zero-day
@@ -540,5 +549,7 @@ alexa:
   queue_during_quiet_hours: true  # hold announcements and speak them when quiet hours end
   queue_max_age_hours: 24         # drop held announcements older than this
   monthly_cap: 150
+  reserve_for_vulnerabilities: 30  # the last 30 of monthly_cap are only spoken for KEV and CVE alerts;
+                                   # other urgent alerts (news, ransomware) then go to the phone only
   voice: ""                     # optional, e.g. Brian or Amy
   chime: ""                     # optional soundbank URL from the Voice Monkey docs

@@ -2,7 +2,9 @@ name: threat-notifier
 
 on:
   schedule:
-    - cron: "7,37 * * * *"   # every 30 minutes, UTC; GitHub can delay scheduled runs a little
+    # Every 30 minutes, UTC. GitHub's scheduler is best effort and can skip runs for hours;
+    # see "Reliable runs" in the README for an outside timer, then make this "7 */3 * * *".
+    - cron: "7,37 * * * *"
   workflow_dispatch:
     inputs:
       mode:

@@ -144,9 +144,11 @@ def unauth_network(vector: str | None) -> bool | None:
 
 class TermMatcher:
     """Whole-term, case-insensitive matching. 'sap' never matches 'sapphire', and
-    'palo alto networks' also matches 'paloaltonetworks' as written in CPE names."""
+    'palo alto networks' also matches 'paloaltonetworks' as written in CPE names.
+    With plurals=True a term also matches with 's' or 'es' on the end ('backdoor' matches
+    'backdoors'); it still reports the term as written."""
 
-    def __init__(self, terms: Iterable[str]) -> None:
+    def __init__(self, terms: Iterable[str], plurals: bool = False) -> None:
         variants: set[str] = set()
         for term in terms:
             term = str(term or "").strip().lower()
@@ -158,7 +160,8 @@ class TermMatcher:
                 variants.add(squashed)
         ordered = sorted(variants, key=len, reverse=True)
         self.pattern = (
-            re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(t) for t in ordered) + r")(?![a-z0-9])", re.IGNORECASE)
+            re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(t) for t in ordered) + r")"
+                       + (r"(?:e?s)?" if plurals else "") + r"(?![a-z0-9])", re.IGNORECASE)
             if ordered
             else None
         )
@@ -293,6 +296,16 @@ def fetch_nvd(http: Http, start: datetime, end: datetime, api_key: str | None, p
         if not batch or index >= int(data.get("totalResults", 0)):
             return results
         SLEEP(pause)
+
+
+def fetch_nvd_cve(http: Http, cve_id: str, api_key: str | None) -> dict | None:
+    """One CVE's NVD record, or None if NVD doesn't have it."""
+    headers = {"apiKey": api_key} if api_key else None
+    data = http.get_json(NVD_URL, params={"cveId": cve_id}, headers=headers, backoff=10.0)
+    for item in data.get("vulnerabilities") or []:
+        if (item.get("cve") or {}).get("id") == cve_id:
+            return item["cve"]
+    return None
 
 
 def fetch_epss(http: Http, cve_ids: Iterable[str]) -> dict[str, tuple[float, float]]:
@@ -479,6 +492,12 @@ def story_fingerprint(title: str, lists: Watchlists) -> dict:
     words = {story_word(w) for w in STORY_WORD.findall(CVE_ID.sub(" ", title.lower()))}
     words = sorted(w for w in words - STORY_STOPWORDS - vendor_words if len(w) >= 3 and not w.isdigit())
     return {"cves": cves, "vendors": vendors, "words": words}
+
+
+def news_matcher(terms: Iterable[str] | None, news_cfg: dict) -> TermMatcher:
+    """Matcher for the news word lists (keywords, hot and breach words): plurals count
+    unless news.match_plurals is false."""
+    return TermMatcher(terms or [], plurals=news_cfg.get("match_plurals", True) is not False)
 
 
 def vendor_breach_priority(title: str, lists: Watchlists, breach_words: TermMatcher) -> str | None:
@@ -704,7 +723,10 @@ def public_title(alert: Alert) -> str:
 
 # --------------------------------------------------------------------------- alert builders
 
-def kev_alert(entry: dict, epss: dict, candidates: dict, lists: Watchlists) -> Alert:
+def kev_alert(entry: dict, epss: dict, candidates: dict, lists: Watchlists, urgent_epss: float = 0.50,
+              cvss: float | None = None, critical: bool = False) -> Alert:
+    """A new KEV entry. Urgent with known ransomware use, a core watchlist vendor, EPSS at
+    urgent_epss, or when critical (the caller decides: CVSS 9+, network, no login)."""
     cve_id = entry["cveID"]
     vendor, product = entry.get("vendorProject", "").strip(), entry.get("product", "").strip()
     ransomware = (entry.get("knownRansomwareCampaignUse") or "").strip().lower() == "known"
@@ -714,14 +736,21 @@ def kev_alert(entry: dict, epss: dict, candidates: dict, lists: Watchlists) -> A
     if ransomware:
         facts.append("known ransomware use")
     scores = []
-    if cve_id in candidates:
-        scores.append(f"CVSS {candidates[cve_id]['cvss']:.1f}")
+    if cvss is None and cve_id in candidates:
+        cvss = candidates[cve_id]["cvss"]
+    if cvss is not None:
+        scores.append(f"CVSS {cvss:.1f}")
     if cve_id in epss:
         scores.append(fmt_epss(epss[cve_id]))
     if scores:
         facts.append(", ".join(scores))
     if core_hits:
         facts.append("core watchlist: " + ", ".join(core_hits))
+    likely = cve_id in epss and epss[cve_id][0] >= urgent_epss
+    if likely:
+        facts.append(f"EPSS at or above {urgent_epss:.0%}")
+    if critical:
+        facts.append("critical, exploitable over the network")
     body = "\n".join(filter(None, [
         entry.get("vulnerabilityName", "").strip(),
         "; ".join(facts),
@@ -735,7 +764,7 @@ def kev_alert(entry: dict, epss: dict, candidates: dict, lists: Watchlists) -> A
         title=f"KEV: {cve_id} {vendor} {product}".strip(),
         body=body,
         url=f"https://nvd.nist.gov/vuln/detail/{cve_id}",
-        priority="urgent" if (ransomware or core_hits) else "high",
+        priority="urgent" if (ransomware or core_hits or likely or critical) else "high",
         speech=speech,
         source="kev",
     )
@@ -855,6 +884,7 @@ def collect(cfg: dict, state: dict, http: Http, env: dict, now: datetime) -> tup
     kev_seen = set(state.get("kev_seen") or [])
 
     # 1. CISA KEV
+    kev_urgent_epss = float((cfg.get("kev") or {}).get("urgent_epss", urgent_epss))
     kev: list[dict] | None = None
     kev_ids: set[str] = set(kev_seen)  # falls back to what we already know if the fetch fails
     kev_new: list[dict] = []
@@ -941,10 +971,28 @@ def collect(cfg: dict, state: dict, http: Http, env: dict, now: datetime) -> tup
                 errors.append(f"EPSS: {exc}")
                 record_health(state, "EPSS", False, alerts, now)
 
-    # 4. KEV alerts: every new entry; urgent with known ransomware use or a core watchlist vendor
+    # 4. KEV alerts: every new entry; urgent with known ransomware use, a core watchlist vendor,
+    #    EPSS at kev.urgent_epss, or (kev.urgent_if_critical) a critical score. An entry that
+    #    isn't a recent candidate has its score looked up in NVD.
     if not seeding:
-        for entry in kev_new:
-            alerts.append(kev_alert(entry, epss, candidates, lists))
+        if_critical = (cfg.get("kev") or {}).get("urgent_if_critical", True) is not False
+        for i, entry in enumerate(kev_new):
+            cve_id = entry["cveID"]
+            cand = candidates.get(cve_id)
+            scored = (cand["cvss"], cand.get("vector")) if cand else None
+            if scored is None and if_critical:
+                try:
+                    if i:
+                        SLEEP(1.0 if env.get("NVD_API_KEY") else 6.5)
+                    record = fetch_nvd_cve(http, cve_id, env.get("NVD_API_KEY") or None)
+                    best = best_cvss((record or {}).get("metrics") or {})
+                    scored = (best[0], best[2]) if best else None
+                except Exception as exc:  # noqa: BLE001 - the alert still goes out, just without the score
+                    errors.append(f"NVD lookup for {cve_id}: {exc}")
+            critical = bool(if_critical and scored and scored[0] >= watch_min
+                            and (unauth_network(scored[1]) is not False or not require_unauth))
+            alerts.append(kev_alert(entry, epss, candidates, lists, kev_urgent_epss,
+                                    cvss=scored[0] if scored else None, critical=critical))
     state["kev_seen"] = sorted(kev_seen | kev_ids)
 
     # 5. CVE alerts
@@ -980,8 +1028,8 @@ def collect(cfg: dict, state: dict, http: Http, env: dict, now: datetime) -> tup
 
     # 6. News feeds
     news = cfg.get("news") or {}
-    hot = TermMatcher(news.get("hot_keywords") or [])
-    breach_words = TermMatcher(news.get("vendor_breach_keywords") or [])
+    hot = news_matcher(news.get("hot_keywords"), news)
+    breach_words = news_matcher(news.get("vendor_breach_keywords"), news)
     default_keywords = news.get("keywords") or []
     max_age = timedelta(days=float(news.get("max_age_days", 3)))
     feed_state = state.setdefault("feeds", {})
@@ -1006,7 +1054,7 @@ def collect(cfg: dict, state: dict, http: Http, env: dict, now: datetime) -> tup
             continue
         feed_baseline = seeding or not record.get("initialised")  # a new feed starts silently
         record["initialised"] = True
-        keywords = TermMatcher(feed.get("keywords") or default_keywords)
+        keywords = news_matcher(feed.get("keywords") or default_keywords, news)
         keyword_mode = feed.get("filter", "keywords") != "all"
         for item in items:
             ident = hashlib.sha1(item["id"].encode("utf-8")).hexdigest()[:16]
@@ -1244,6 +1292,18 @@ def announce_on_alexa(spoken: list[Alert], cfg: dict, state: dict, http: Http, e
         return
 
     items = sorted(queue + new, key=lambda q: PRIORITY_RANK.get(q["priority"], 0), reverse=True)
+    cap = int(alexa_cfg.get("monthly_cap", 150))
+    reserve = int(alexa_cfg.get("reserve_for_vulnerabilities", 30))
+    if state["alexa"]["count"] >= cap - reserve:
+        # The last announcements of the month are kept for exploited vulnerabilities (KEV, CVEs).
+        vulns = [q for q in items if str(q.get("key", "")).split(":", 1)[0] in ("kev", "cve")]
+        if len(vulns) < len(items):
+            log(f"Alexa: {len(items) - len(vulns)} announcement(s) left to the phone, keeping the last "
+                f"{reserve} of {cap} this month for exploited vulnerabilities")
+        items = vulns
+        if not items:
+            state.pop("alexa_queue", None)
+            return
     speech = items[0]["speech"]
     if len(items) > 1:
         first = items[0]["speech"].removeprefix("Security alert. ")

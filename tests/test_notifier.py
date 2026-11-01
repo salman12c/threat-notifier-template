@@ -1116,6 +1116,79 @@ class RansomwareDrillTests(unittest.TestCase):
                          ["DRILL: Ransomware: Fabrikam listed by akira"])
 
 
+class KevAndNewsDrillTests(unittest.TestCase):
+    ENV = {"NTFY_TOPIC": "t", "VOICEMONKEY_TOKEN": "vm", "VOICEMONKEY_DEVICE": "echo"}
+
+    def run_drill(self, kind, arg, live=True, http=None):
+        http, lines = http or FakeHttp(kev=KEV_V2), []
+        drill = load_drill()
+        fn = drill.kev_drill if kind == "kev" else drill.news_drill
+        code = fn(arg, test_config(), dict(self.ENV), http, NOW, live, log=lines.append)
+        return code, http, "\n".join(lines)
+
+    @staticmethod
+    def sent(http):
+        phone = [p["title"] for u, p in http.posts if u == "https://ntfy.sh"]
+        alexa = [p["speech"] for u, p in http.posts if u == notifier.VOICEMONKEY_URL]
+        return phone, alexa
+
+    def test_kev_drill_treats_the_entry_as_just_added(self):
+        originals = (notifier.fetch_kev, notifier.fetch_nvd, notifier.fetch_feed)
+        code, http, out = self.run_drill("kev", "CVE-2026-40001")  # Fortinet: core vendor
+        self.assertEqual(code, 0)
+        self.assertIn("treated as added just now", out)
+        self.assertIn("Decision: URGENT - KEV: CVE-2026-40001", out)
+        phone, alexa = self.sent(http)
+        self.assertEqual(len(phone), 1)
+        self.assertTrue(phone[0].startswith("DRILL: KEV: CVE-2026-40001"))
+        self.assertEqual(len(alexa), 1)
+        self.assertTrue(alexa[0].startswith("This is a drill. "))
+        self.assertEqual((notifier.fetch_kev, notifier.fetch_nvd, notifier.fetch_feed), originals)
+
+    def test_kev_drill_for_a_vendor_off_the_core_list_stays_off_alexa(self):
+        code, http, out = self.run_drill("kev", "CVE-2026-40002")
+        self.assertIn("Decision: HIGH", out)
+        self.assertIn("Alexa: stays silent", out)
+        self.assertEqual(self.sent(http)[1], [])
+
+    def test_kev_drill_needs_a_kev_entry(self):
+        code, http, out = self.run_drill("kev", "CVE-2099-0001")
+        self.assertEqual((code, http.posts), (1, []))
+        self.assertIn("not in CISA's KEV catalogue", out)
+
+    def test_news_drill_ranks_a_headline_like_a_new_feed_item(self):
+        code, http, out = self.run_drill("news", ["News: ConnectWise breached by state-backed hackers"])
+        self.assertEqual(code, 0)
+        self.assertIn("Not in News's feed any more", out)
+        self.assertIn("MSP-critical in headline: connectwise", out)
+        self.assertIn("Decision: URGENT - News: ConnectWise breached by state-backed hackers", out)
+        phone, alexa = self.sent(http)
+        self.assertEqual(phone, ["DRILL: News: ConnectWise breached by state-backed hackers"])
+        self.assertEqual(len(alexa), 1)
+
+    def test_news_drill_uses_the_real_item_when_it_is_still_in_the_feed(self):
+        code, http, out = self.run_drill("news", ["news: old story about patching"], live=False)
+        self.assertIn("Found in News's feed", out)
+        self.assertEqual(http.posts, [])
+
+    def test_news_drill_reports_a_headline_the_filter_drops(self):
+        code, http, out = self.run_drill("news", ["News: Lunch menu updated for the canteen"])
+        self.assertEqual((code, http.posts), (0, []))
+        self.assertIn("DROPPED", out)
+        self.assertIn("would NOT alert", out)
+
+    def test_news_drill_groups_headlines_about_one_story(self):
+        title = "Fortinet zero-day CVE-2026-40001 exploited in FortiGate attacks"
+        code, http, out = self.run_drill("news", [f"News: {title}", f"DoublePulsar: {title}"], live=False)
+        self.assertEqual(out.count("Decision:"), 1)
+        self.assertIn("Also covered by: DoublePulsar", out)
+
+    def test_news_drill_needs_a_known_feed(self):
+        code, http, out = self.run_drill("news", ["Nowhere Times: something happened"])
+        self.assertEqual((code, http.posts), (1, []))
+        self.assertIn("Feeds: News, DoublePulsar", out)
+
+
 class HelperTests(unittest.TestCase):
     def test_quiet_schedule_for_weekdays_and_weekends(self):
         london = notifier.ZoneInfo("Europe/London")
@@ -1178,6 +1251,84 @@ class HelperTests(unittest.TestCase):
         php = notifier.TermMatcher(["php"])
         self.assertEqual(php.find(notifier.scrub_paths("SQL injection in /admin/login.php and view.php")), [])
         self.assertEqual(php.find(notifier.scrub_paths("A flaw in PHP 8.3 via /index.php")), ["php"])
+
+    def test_plurals_count_for_news_words_only_when_asked(self):
+        words = ["backdoor", "breach", "zero-day"]
+        text = "SSH backdoors, two breaches and zero-days"
+        self.assertEqual(notifier.TermMatcher(words).find(text), [])
+        self.assertEqual(notifier.TermMatcher(words, plurals=True).find(text), ["backdoor", "breach", "zero-day"])
+        self.assertEqual(notifier.TermMatcher(["backdoor"], plurals=True).find("backdoorsx"), [])
+        self.assertEqual(notifier.news_matcher(words, {}).find(text), ["backdoor", "breach", "zero-day"])
+        self.assertEqual(notifier.news_matcher(words, {"match_plurals": False}).find(text), [])
+
+    def test_kev_entry_with_high_epss_is_urgent(self):
+        lists = notifier.build_watchlists(test_config(), {}, None)
+        entry = kev_entry("CVE-2026-40002", "Widgetco", "Widget Server")
+        high = notifier.kev_alert(entry, {"CVE-2026-40002": (0.49, 0.99)}, {}, lists, urgent_epss=0.50)
+        urgent = notifier.kev_alert(entry, {"CVE-2026-40002": (0.50, 0.99)}, {}, lists, urgent_epss=0.50)
+        self.assertEqual((high.priority, urgent.priority), ("high", "urgent"))
+        self.assertIn("EPSS at or above 50%", urgent.body)
+        off = notifier.kev_alert(entry, {"CVE-2026-40002": (1.0, 1.0)}, {}, lists, urgent_epss=1.01)
+        self.assertEqual(off.priority, "high")
+
+    def test_kev_urgent_epss_setting_is_used_by_collect(self):
+        state = seeded_state()
+        http = FakeHttp(kev=KEV_V2, epss=dict(EPSS_SCORES, **{"CVE-2026-40002": (0.60, 0.99)}))
+        cfg = test_config()
+        alerts, _, _ = run_once(state, http, cfg=cfg, now=NOW + timedelta(minutes=30))
+        self.assertEqual({a.key: a.priority for a in alerts}["kev:CVE-2026-40002"], "urgent")
+        cfg["kev"]["urgent_epss"] = 0.70
+        state = seeded_state()
+        alerts, _, _ = run_once(state, http, cfg=cfg, now=NOW + timedelta(minutes=30))
+        self.assertEqual({a.key: a.priority for a in alerts}["kev:CVE-2026-40002"], "high")
+
+    def test_critical_kev_entry_is_urgent_using_its_nvd_score(self):
+        old_critical = nvd_cve("CVE-2026-40002", 9.8, vendor="widgetco", product="widget server", days_old=200)
+        nvd = {"totalResults": len(NVD_ITEMS) + 1, "vulnerabilities": NVD_ITEMS + [old_critical]}
+        for setting, expected in ((True, "urgent"), (False, "high")):
+            cfg = test_config()
+            cfg["kev"]["urgent_if_critical"] = setting
+            state = seeded_state()
+            http = FakeHttp(kev=KEV_V2, nvd=nvd)
+            alerts, errors, _ = run_once(state, http, cfg=cfg, now=NOW + timedelta(minutes=30))
+            alert = {a.key: a for a in alerts}["kev:CVE-2026-40002"]
+            self.assertEqual(alert.priority, expected)
+            self.assertEqual(errors, [])
+            if setting:
+                self.assertIn("CVSS 9.8", alert.body)
+                self.assertIn("critical, exploitable over the network", alert.body)
+        self.assertNotIn("cve:CVE-2026-40002", {a.key for a in alerts})  # too old for the CVE path
+
+    def test_last_alexa_announcements_are_kept_for_vulnerabilities(self):
+        def spoken(count, alerts):
+            cfg, http, lines = test_config(), FakeHttp(), []
+            cfg["alexa"].update(monthly_cap=150, reserve_for_vulnerabilities=30)
+            state = {"alexa": {"month": "2026-11", "count": count}}
+            notifier.announce_on_alexa(alerts, cfg, state, http, {"VOICEMONKEY_TOKEN": "v", "VOICEMONKEY_DEVICE": "e"},
+                                       NOW, False, lines.append)
+            return [p["speech"] for u, p in http.posts if u == notifier.VOICEMONKEY_URL], "\n".join(lines)
+
+        news = notifier.Alert(key="news:abc", title="t", body="", url="", priority="urgent", speech="News story.")
+        kev = notifier.Alert(key="kev:CVE-2026-1", title="t", body="", url="", priority="urgent", speech="KEV entry.")
+        self.assertEqual(len(spoken(119, [news])[0]), 1)       # under the reserve: everything urgent
+        said, log = spoken(120, [news])
+        self.assertEqual(said, [])
+        self.assertIn("keeping the last 30 of 150 this month for exploited vulnerabilities", log)
+        said, _ = spoken(120, [news, kev])
+        self.assertEqual(said, ["KEV entry."])
+        self.assertEqual(spoken(150, [kev])[0], [])            # the cap itself still holds
+
+    def test_shipped_config_ranks_the_october_stories(self):
+        news = CONFIG["news"]
+        lists = notifier.build_watchlists(CONFIG, {}, None)
+        breach = notifier.news_matcher(news["vendor_breach_keywords"], news)
+        rank = lambda title: notifier.vendor_breach_priority(title, lists, breach)  # noqa: E731
+        self.assertEqual(rank("ConnectWise (SkyKick) Vendor Credentials Abused in M365 Attacks"), "urgent")
+        self.assertEqual(rank("Anthropic hacked to deliver remote access trojan to Claude developer laptops"), "high")
+        for term in ("anthropic", "claude code", "cursor ide"):
+            self.assertEqual(lists.core.find(f"news about {term}"), [term])
+        keywords = notifier.news_matcher(news["keywords"], news)
+        self.assertTrue(keywords.find("Malicious Claude Code extension on Cursor planted SSH backdoors"))
 
     def test_unauthenticated_network_check(self):
         self.assertTrue(notifier.unauth_network(UNAUTH))

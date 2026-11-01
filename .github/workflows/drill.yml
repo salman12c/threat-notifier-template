@@ -1,18 +1,23 @@
 name: drill
 
-# Manual only. Sends one real alert through the notifier, labelled DRILL: a CVE as if NVD
-# had just published it, or a recent ransomware listing in your countries. The notifier's
-# saved state is never touched.
+# Manual only. Sends real alerts through the notifier, labelled DRILL: a CVE as if NVD had
+# just published it, a KEV entry as if CISA had just added it, headlines as if your news
+# feeds had just posted them, or a recent ransomware listing in your countries. The
+# notifier's saved state is never touched.
 on:
   workflow_dispatch:
     inputs:
       kind:
         description: "What to drill"
         type: choice
-        options: [cve, ransomware]
+        options: [cve, kev, news, ransomware]
         default: cve
       cve:
-        description: "CVE ID for a CVE drill, e.g. CVE-2026-111497"
+        description: "CVE ID for a cve or kev drill, e.g. CVE-2026-111497"
+        required: false
+        type: string
+      headlines:
+        description: "news drill: 'Feed name: headline', several separated by ||"
         required: false
         type: string
       ignore_quiet_hours:
@@ -41,6 +46,7 @@ jobs:
         env:
           KIND: ${{ inputs.kind }}
           CVE: ${{ inputs.cve }}
+          HEADLINES: ${{ inputs.headlines }}
           QUIET_FLAG: ${{ inputs.ignore_quiet_hours && '--ignore-quiet-hours' || '' }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
@@ -53,8 +59,9 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           RANSOMWARE_LIVE_API_KEY: ${{ secrets.RANSOMWARE_LIVE_API_KEY }}
         run: |
-          if [ "$KIND" = "ransomware" ]; then
-            python tools/drill.py --ransomware --live $QUIET_FLAG
-          else
-            python tools/drill.py "$CVE" --live $QUIET_FLAG
-          fi
+          case "$KIND" in
+            ransomware) python tools/drill.py --ransomware --live $QUIET_FLAG ;;
+            kev)        python tools/drill.py --kev "$CVE" --live $QUIET_FLAG ;;
+            news)       python tools/drill.py --news "$HEADLINES" --live $QUIET_FLAG ;;
+            *)          python tools/drill.py "$CVE" --live $QUIET_FLAG ;;
+          esac
