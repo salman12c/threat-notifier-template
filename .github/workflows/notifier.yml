@@ -1,0 +1,79 @@
+name: threat-notifier
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"   # every 30 minutes, UTC; GitHub can delay scheduled runs a little
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "test sends one test alert, dry-run shows what would be sent, run is the real thing"
+        type: choice
+        options: [test, dry-run, run]
+        default: test
+
+permissions:
+  contents: read
+
+concurrency:
+  group: threat-notifier
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check setup
+        id: setup
+        env:
+          PHONE: ${{ secrets.NTFY_TOPIC }}${{ secrets.TELEGRAM_BOT_TOKEN }}${{ secrets.PUSHOVER_APP_TOKEN }}
+        run: |
+          if [ -z "$PHONE" ]; then
+            echo "::notice::Not set up yet: add the NTFY_TOPIC secret (see README, Quick start). Nothing was checked."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.setup.outputs.ready == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.setup.outputs.ready == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+        if: steps.setup.outputs.ready == 'true'
+
+      - name: Restore state
+        if: steps.setup.outputs.ready == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: notifier-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: notifier-state-
+
+      - name: Run notifier
+        if: steps.setup.outputs.ready == 'true'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          VOICEMONKEY_TOKEN: ${{ secrets.VOICEMONKEY_TOKEN }}
+          VOICEMONKEY_DEVICE: ${{ secrets.VOICEMONKEY_DEVICE }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          RANSOMWARE_LIVE_API_KEY: ${{ secrets.RANSOMWARE_LIVE_API_KEY }}
+          WATCH_ORGS: ${{ secrets.WATCH_ORGS }}
+        run: python notifier.py --mode "${{ github.event.inputs.mode || 'run' }}"
+
+      - name: Save state
+        if: steps.setup.outputs.ready == 'true' && (github.event_name == 'schedule' || github.event.inputs.mode == 'run')
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: notifier-state-${{ github.run_id }}-${{ github.run_attempt }}

@@ -1,0 +1,544 @@
+# Threat notifier settings. Edit, commit, and the next scheduled run uses them.
+
+timezone: Europe/London
+
+# CISA Known Exploited Vulnerabilities: every new entry alerts.
+# It's urgent when ransomware use is known or the vendor is on your watchlist.
+kev:
+  enabled: true
+
+# New CVEs from NVD, published in the last 30 days with CVSS of at least min_cvss.
+# A CVE alerts when EPSS reaches epss_threshold, or when it's critical (CVSS of at least
+# watchlist_min_cvss, network-exploitable with no login) on a watchlist vendor.
+#   urgent: EPSS hit plus a critical on the core list, or EPSS at urgent_epss on any critical
+#   high:   EPSS hit on its own, or a critical on the core list
+#   normal: a critical on the extended list (arrives silently)
+cve:
+  min_cvss: 7.0
+  epss_threshold: 0.10          # 10% chance of exploitation in the next 30 days
+  urgent_epss: 0.50
+  watchlist_min_cvss: 9.0
+  watchlist_requires_unauthenticated: true
+  watch_days: 14                # keep re-checking EPSS this long, so a later jump still alerts
+  max_published_age_days: 30    # older CVEs only alert through KEV
+  max_window_hours: 168         # how far back to look after downtime
+
+# Three layers, all matched as whole words (case doesn't matter):
+#   auto_from_kev adds every vendor CISA has listed in KEV at least auto_min_kev_entries
+#     times, refreshed each run. It's the best free proxy for "widely deployed and attacked".
+#   core is where a KEV entry or a critical is loud: edge devices, identity, remote access
+#     and RMM, hypervisors, backup, file transfer and the biggest targets.
+#   extended is everything else worth knowing about across a wide client base.
+#   ignore drops CVEs from sources that flood NVD with criticals nobody runs. It never
+#     blocks KEV alerts. Remove anything your clients actually use.
+#   msp_critical is a sub-list of core (anything here also counts as core): the RMM, PSA,
+#     remote access and identity providers whose breach would reach every client at once.
+#     A headline naming one of them with a word from news.vendor_breach_keywords is urgent.
+watchlist:
+  auto_from_kev: true
+  auto_min_kev_entries: 5
+  msp_critical:
+    # RMM and PSA
+    - connectwise
+    - screenconnect
+    - kaseya
+    - ninjaone
+    - n-able
+    - n-central
+    - datto
+    - atera
+    - syncro
+    - halopsa
+    - solarwinds
+    # Remote access
+    - teamviewer
+    - anydesk
+    - splashtop
+    - simplehelp
+    - beyondtrust
+    # Identity providers
+    - okta
+    - entra
+    - azure ad
+    - ping identity
+    - duo security
+    - onelogin
+    - cyberark
+    - delinea
+  core:
+    # Microsoft and identity
+    - windows
+    - windows server
+    - active directory
+    - exchange server
+    - sharepoint
+    - entra
+    - azure ad
+    - microsoft 365
+    - office 365
+    - microsoft office
+    - outlook
+    - hyper-v
+    - iis
+    - defender
+    - intune
+    - okta
+    - ping identity
+    - duo security
+    - cyberark
+    - beyondtrust
+    - delinea
+    - onelogin
+    # Edge, VPN and firewalls
+    - fortinet
+    - fortios
+    - fortigate
+    - fortiweb
+    - fortimanager
+    - fortiproxy
+    - palo alto networks
+    - pan-os
+    - globalprotect
+    - adaptive security appliance
+    - firepower
+    - ios xe
+    - identity services engine
+    - citrix
+    - netscaler
+    - ivanti
+    - connect secure
+    - pulse secure
+    - sonicwall
+    - f5
+    - big-ip
+    - juniper
+    - junos
+    - check point
+    - watchguard
+    - zyxel
+    - sophos
+    - zscaler
+    - barracuda
+    # Remote access, RMM and MSP tooling
+    - connectwise
+    - screenconnect
+    - kaseya
+    - ninjaone
+    - n-able
+    - n-central
+    - datto
+    - solarwinds
+    - teamviewer
+    - anydesk
+    - splashtop
+    - atera
+    - syncro
+    - halopsa
+    - simplehelp
+    # Hypervisors and backup
+    - vmware
+    - esxi
+    - vcenter
+    - nutanix
+    - veeam
+    - commvault
+    # File transfer
+    - moveit
+    - goanywhere
+    - cleo
+    - crushftp
+    - sharefile
+    # Big targets
+    - sap
+    - netweaver
+    - oracle e-business suite
+    - weblogic
+    - confluence
+    - zimbra
+    - crowdstrike
+    - sentinelone
+    - chrome
+    - chromium
+    - log4j
+  extended:
+    # Microsoft and productivity
+    - microsoft
+    - microsoft edge
+    - microsoft teams
+    - onedrive
+    - sql server
+    - visual studio
+    - visual studio code
+    - vs code
+    - azure devops
+    - power platform
+    - dynamics 365
+    - adobe acrobat
+    - adobe reader
+    - foxit
+    - 7-zip
+    - winrar
+    - notepad++
+    - putty
+    - winscp
+    - filezilla
+    - libreoffice
+    - zoom
+    - webex
+    - slack
+    # Developer and AI tools
+    - anysphere
+    - cursor ide
+    - cursor is a code editor
+    - claude
+    - claude code
+    - anthropic
+    - openai
+    - chatgpt
+    - copilot
+    - github
+    - gitlab
+    - bitbucket
+    - jenkins
+    - teamcity
+    - jetbrains
+    - docker
+    - kubernetes
+    - terraform
+    - ansible
+    - npm
+    - pypi
+    - node.js
+    - next.js
+    - react
+    - angular
+    - spring framework
+    - spring boot
+    - apache struts
+    - laravel
+    - django
+    - ruby on rails
+    - ollama
+    - langchain
+    - hugging face
+    - model context protocol
+    # Web stack and databases
+    - php
+    - wordpress
+    - drupal
+    - joomla
+    - magento
+    - adobe commerce
+    - apache
+    - tomcat
+    - nginx
+    - haproxy
+    - openssl
+    - openssh
+    - glibc
+    - sudo
+    - linux kernel
+    - samba
+    - exim
+    - roundcube
+    - redis
+    - mongodb
+    - elasticsearch
+    - grafana
+    - mysql
+    - postgresql
+    - oracle
+    # SaaS and business platforms
+    - salesforce
+    - zendesk
+    - servicenow
+    - atlassian
+    - jira
+    - snowflake
+    - workday
+    - hubspot
+    - docusign
+    - dropbox
+    - google workspace
+    - papercut
+    # Security vendors
+    - proofpoint
+    - mimecast
+    - abnormal security
+    - ironscales
+    - trend micro
+    - trellix
+    - symantec
+    - eset
+    - bitdefender
+    - darktrace
+    - tenable
+    - qualys
+    - rapid7
+    - splunk
+    # Network and storage
+    - meraki
+    - aruba
+    - ubiquiti
+    - draytek
+    - mikrotik
+    - synology
+    - qnap
+    - netapp
+    - veritas
+    - acronis
+    - rubrik
+    - cohesity
+    # Password managers
+    - lastpass
+    - 1password
+    - bitwarden
+    - keeper security
+    - keepass
+    # Devices and endpoints
+    - apple
+    - ios
+    - ipados
+    - macos
+    - android
+    - citrix workspace
+    - vmware horizon
+    - proxmox
+  ignore:
+    - sourcecodester
+    - code-projects
+    - phpgurukul
+    - itsourcecode
+    - campcodes
+    - kashipara
+    - projectworlds
+    - 1000 projects
+    - tenda
+    - totolink
+    - d-link
+    - tp-link
+    - netgear
+    - linksys
+    - wavlink
+    - edimax
+
+news:
+  max_age_days: 3
+  # One alert per story. Headlines that share a CVE ID, or a watchlist vendor plus at least
+  # story_min_shared_words significant words (generic words like "patch" or "flaw" don't
+  # count), are grouped: the alert keeps the highest priority and the earliest title, and
+  # lists the other outlets. A story seen again within story_window_hours doesn't re-alert.
+  group_stories: true
+  story_window_hours: 24
+  story_min_shared_words: 3
+  # Words in a headline that make an item high priority, or urgent with a watchlist match.
+  hot_keywords:
+    - zero-day
+    - zero day
+    - 0-day
+    - actively exploited
+    - exploited in the wild
+    - exploited in attacks
+    - under active exploitation
+    - mass exploitation
+    - emergency patch
+    - emergency update
+    - out-of-band
+    - supply chain attack
+    - supply-chain attack
+    - wormable
+  # A headline naming a core watchlist vendor plus one of these words is high priority even
+  # without zero-day wording, and urgent when the vendor is on watchlist.msp_critical.
+  # Such headlines always get through, even from feeds filtered by keywords.
+  vendor_breach_keywords:
+    - breach
+    - breached
+    - compromised
+    - hacked
+    - supply chain attack
+    - stolen
+    - malicious update
+    - backdoored
+  # Feeds set to "keywords" only alert when the title or summary has one of these.
+  keywords:
+    - zero-day
+    - zero day
+    - 0-day
+    - exploited
+    - exploitation
+    - actively exploited
+    - emergency patch
+    - out-of-band
+    - critical vulnerability
+    - critical flaw
+    - remote code execution
+    - rce
+    - ransomware
+    - data breach
+    - breach
+    - breached
+    - hacked
+    - compromised
+    - compromise
+    - supply chain
+    - supply-chain
+    - backdoor
+    - backdoored
+    - extortion
+    - stolen
+    - leak
+    - leaked
+    - outage
+    - known exploited
+    - infostealer
+  # filter: "all" alerts on every new post; "keywords" filters. A feed can set its own keywords.
+  feeds:
+    - name: NCSC
+      url: https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml
+      filter: keywords
+    - name: BleepingComputer
+      url: https://www.bleepingcomputer.com/feed/
+      filter: keywords
+    - name: The Hacker News
+      url: https://feeds.feedburner.com/TheHackersNews
+      filter: keywords
+    - name: The Record
+      url: https://therecord.media/feed/
+      filter: keywords
+    - name: SANS ISC
+      url: https://isc.sans.edu/rssfeed_full.xml
+      filter: keywords
+    - name: Huntress
+      url: https://www.huntress.com/blog/rss.xml
+      filter: all
+    - name: DoublePulsar
+      url: https://doublepulsar.com/feed
+      filter: all
+    - name: watchTowr Labs
+      url: https://labs.watchtowr.com/rss/
+      filter: all
+    - name: Krebs on Security
+      url: https://krebsonsecurity.com/feed/
+      filter: all
+    - name: r/sysadmin
+      url: https://www.reddit.com/r/sysadmin/new/.rss
+      filter: keywords
+      keywords: [breach, breached, compromised, zero-day, 0-day, actively exploited, ransomware, outage, psa, supply chain, backdoor, malicious update]
+    - name: Have I Been Pwned
+      url: https://feeds.feedburner.com/HaveIBeenPwnedLatestBreaches
+      filter: all
+    - name: DataBreaches.net
+      url: https://databreaches.net/feed/
+      filter: keywords
+    - name: Securelist            # Kaspersky GReAT's research blog
+      url: https://securelist.com/feed/
+      filter: keywords
+
+# Mastodon and Bluesky accounts, read through their public RSS feeds (no login or API key).
+# Posts always go through news.keywords (or an account's own `keywords`), are grouped with
+# news stories, and stay normal priority unless the post has a news.hot_keywords word AND
+# names a core watchlist vendor; then they get hot_vendor_priority.
+#   mastodon: the profile URL (https://server/@user) or @user@server; the feed is URL + .rss
+#   bluesky:  the handle (name.bsky.social or a domain); the feed is bsky.app/profile/HANDLE/rss
+# Add `enabled: false` to mute one account. Each account was checked on 2026-11-01.
+social:
+  enabled: true
+  hot_vendor_priority: high     # urgent would also make Alexa read the post out
+  accounts:
+    # Researchers
+    - name: Florian Roth          # Nextron Systems; Sigma and THOR. Quiet here since March 2025 (mostly on X)
+      mastodon: https://infosec.exchange/@cyb3rops
+    - name: Will Dormann          # vulnerability analyst, ex-CERT/CC
+      mastodon: https://infosec.exchange/@wdormann
+    - name: Brian Krebs
+      mastodon: https://infosec.exchange/@briankrebs
+    - name: Troy Hunt             # Have I Been Pwned
+      bluesky: troyhunt.com
+    - name: Kim Zetter            # investigative journalist
+      bluesky: kimzetter.bsky.social
+    - name: Catalin Cimpanu       # Risky Business News
+      bluesky: campuscodi.risky.biz
+    - name: Shadowserver          # internet-wide scanning: exposed and exploited devices
+      mastodon: https://infosec.exchange/@shadowserver
+    # Kaspersky GReAT, past and present (the team's research itself comes from the Securelist feed)
+    - name: Boris Larin           # Kaspersky GReAT zero-day hunter
+      mastodon: https://mastodon.social/@oct0xor
+    - name: Costin Raiu           # led GReAT until 2023, now TLPBLACK. Quiet on Bluesky since early 2026
+      bluesky: craiu.bsky.social
+    - name: Kurt Baumgartner      # ex-GReAT, co-founder of TLPBLACK
+      bluesky: kurtisj.bsky.social
+    # UK
+    - name: Kevin Beaumont        # DoublePulsar; usually first on mass exploitation
+      mastodon: https://cyberplace.social/@GossiTheDog
+    - name: Marcus Hutchins       # MalwareTech
+      mastodon: https://infosec.exchange/@malwaretech
+    - name: Scott Helme           # web security, Report URI
+      bluesky: scotthelme.bsky.social
+    - name: Graham Cluley         # Smashing Security
+      bluesky: grahamcluley.com
+    - name: Joe Tidy              # BBC cyber correspondent
+      bluesky: joetidy.bsky.social
+    - name: NCSC on Bluesky       # UK National Cyber Security Centre
+      bluesky: ncsc.gov.uk
+
+# Clients and key suppliers. A ransomware.live victim whose name or website matches one of
+# these (whole words, case doesn't matter; names or domains such as acme.com) alerts.
+# Keep this empty in a public repo: put the real list in the WATCH_ORGS secret, comma
+# separated. Both are combined. Names never appear in logs, run summaries or saved state.
+watch_orgs: []
+
+# Victims posted on ransomware leak sites, from ransomware.live's free PRO API: every victim
+# in `countries`, plus any victim matching watch_orgs. Needs the RANSOMWARE_LIVE_API_KEY
+# secret (free key from https://my.ransomware.live). Victim names go to your phone only. Check ransomware.live's terms: commercial use
+# needs their written approval, and the source must be credited (alerts say
+# "Source: Ransomware.live"). Their data refreshes every 30 minutes, so don't poll faster.
+ransomware_live:
+  enabled: true
+  countries: [GB]               # every victim in these countries alerts (ISO codes; UK = GB); [] to turn off
+  country_priority: urgent      # urgent: phone at max priority and Alexa announces it;
+                                # high: phone with sound only (turns Alexa off for these)
+  priority: urgent              # a watched organisation (watch_orgs / WATCH_ORGS) listed by a ransomware group
+  max_age_days: 7               # ignore listings discovered longer ago than this
+  url: https://api-pro.ransomware.live/victims/recent   # the 100 most recent victims, for watch_orgs
+  country_url: https://api-pro.ransomware.live/victims/  # victims by country and month
+
+# Monthly feed check (the feed-check workflow): tests every news feed and social account and
+# sends one message without sound listing those that failed or posted nothing for
+# silent_days, with a suggested fix where it can find one. It never edits this file.
+feed_check:
+  enabled: true
+  silent_days: 14
+  # Feed or account names that are allowed to be quiet: not reported as silent (failures still are).
+  quiet_ok: [Florian Roth, Costin Raiu, Boris Larin, Marcus Hutchins, Kim Zetter]
+  notify_when_all_ok: false     # true also sends "all feeds are fine" when nothing needs attention
+
+delivery:
+  max_alerts_per_run: 12        # anything over this arrives as one digest message
+  normal_silent: false          # false: normal alerts make a sound too (true lands them quietly)
+  ntfy_server: https://ntfy.sh
+  pushover_urgent_priority: 1   # 1 skips your quiet hours; 2 repeats until you acknowledge
+  # During these hours phone alerts still arrive straight away, but without sound.
+  # "alexa" uses the same schedule as alexa.quiet_hours below; or give a schedule in
+  # the same format (e.g. "23:00-07:00"); an empty value means the phone always rings.
+  phone_quiet_hours: alexa
+  phone_quiet_ring_urgent: false  # true lets urgent alerts still ring during quiet hours
+
+# Alexa through Voice Monkey. The free plan is 200 requests a month, so only urgent
+# alerts are spoken and several urgent alerts in one run become one announcement.
+# Alexa never speaks during quiet hours; it holds announcements and catches up after.
+alexa:
+  enabled: true
+  min_priority: urgent
+  # When Alexa stays quiet, in the timezone above. Each range belongs to the morning it
+  # ends on: weekdays are Monday to Friday mornings, so 23:00-08:00 also covers Sunday
+  # night, and weekends are Saturday and Sunday mornings, so Friday night is free until 01:00.
+  # Other forms: one range for every day, e.g. quiet_hours: "22:00-07:30"; or add a single
+  # day such as friday: "00:00-09:00" to override it; an empty value means no quiet hours.
+  quiet_hours:
+    weekdays: "23:00-08:00"
+    weekends: "01:00-11:00"
+  queue_during_quiet_hours: true  # hold announcements and speak them when quiet hours end
+  queue_max_age_hours: 24         # drop held announcements older than this
+  monthly_cap: 150
+  voice: ""                     # optional, e.g. Brian or Amy
+  chime: ""                     # optional soundbank URL from the Voice Monkey docs

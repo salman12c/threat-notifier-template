@@ -1,0 +1,80 @@
+name: feed-check
+
+# Monthly: test every news feed and social account in config.yaml and send one message
+# without sound listing those that failed or went silent, with suggested fixes.
+# GitHub sometimes skips scheduled runs, so it is scheduled on each of the first seven
+# days of the month and stops once one run has reported for that month.
+on:
+  schedule:
+    - cron: "23 9 1-7 * *"   # 09:23 UTC
+  workflow_dispatch:
+    inputs:
+      send:
+        description: "Send the phone message (untick for a dry run that only writes the run summary)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Month
+        id: month
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Check setup
+        id: setup
+        env:
+          PHONE: ${{ secrets.NTFY_TOPIC }}${{ secrets.TELEGRAM_BOT_TOKEN }}${{ secrets.PUSHOVER_APP_TOKEN }}
+        run: |
+          if [ -z "$PHONE" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "::notice::Not set up yet: add the NTFY_TOPIC secret (see README, Quick start)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Already reported this month?
+        if: github.event_name == 'schedule' && steps.setup.outputs.skip != 'true'
+        id: done
+        uses: actions/cache/restore@v4
+        with:
+          path: .feed-check-done
+          key: feed-check-done-${{ steps.month.outputs.month }}
+          lookup-only: true
+
+      - uses: actions/checkout@v4
+        if: steps.done.outputs.cache-hit != 'true' && steps.setup.outputs.skip != 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.done.outputs.cache-hit != 'true' && steps.setup.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+        if: steps.done.outputs.cache-hit != 'true' && steps.setup.outputs.skip != 'true'
+
+      - name: Check feeds
+        if: steps.done.outputs.cache-hit != 'true' && steps.setup.outputs.skip != 'true'
+        env:
+          SEND_FLAG: ${{ (github.event_name == 'schedule' || inputs.send) && '--send' || '' }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+        run: python tools/feed_check.py $SEND_FLAG
+
+      - name: Mark this month as reported
+        if: github.event_name == 'schedule' && steps.done.outputs.cache-hit != 'true' && steps.setup.outputs.skip != 'true'
+        run: mkdir -p .feed-check-done && date -u > .feed-check-done/at
+
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'schedule' && steps.done.outputs.cache-hit != 'true' && steps.setup.outputs.skip != 'true'
+        with:
+          path: .feed-check-done
+          key: feed-check-done-${{ steps.month.outputs.month }}

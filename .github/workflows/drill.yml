@@ -1,0 +1,60 @@
+name: drill
+
+# Manual only. Sends one real alert through the notifier, labelled DRILL: a CVE as if NVD
+# had just published it, or a recent ransomware listing in your countries. The notifier's
+# saved state is never touched.
+on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "What to drill"
+        type: choice
+        options: [cve, ransomware]
+        default: cve
+      cve:
+        description: "CVE ID for a CVE drill, e.g. CVE-2026-111497"
+        required: false
+        type: string
+      ignore_quiet_hours:
+        description: "Let Alexa speak and the phone ring even during quiet hours"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run drill
+        env:
+          KIND: ${{ inputs.kind }}
+          CVE: ${{ inputs.cve }}
+          QUIET_FLAG: ${{ inputs.ignore_quiet_hours && '--ignore-quiet-hours' || '' }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          VOICEMONKEY_TOKEN: ${{ secrets.VOICEMONKEY_TOKEN }}
+          VOICEMONKEY_DEVICE: ${{ secrets.VOICEMONKEY_DEVICE }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          RANSOMWARE_LIVE_API_KEY: ${{ secrets.RANSOMWARE_LIVE_API_KEY }}
+        run: |
+          if [ "$KIND" = "ransomware" ]; then
+            python tools/drill.py --ransomware --live $QUIET_FLAG
+          else
+            python tools/drill.py "$CVE" --live $QUIET_FLAG
+          fi
