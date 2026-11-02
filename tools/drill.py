@@ -122,10 +122,19 @@ def explain_headline(title: str, summary: str, feed: dict, cfg: dict, lists: not
     keyword_mode = feed.get("filter", "keywords") != "all"
     mode = "keyword-filtered" if keyword_mode else "every post"
     hits = "; ".join(f"{k}: {', '.join(v)}" for k, v in found.items() if v) or "none of the rule words"
-    dropped = keyword_mode and not found["filter words"] and \
-        not notifier.vendor_breach_priority(title, lists, notifier.news_matcher(news.get("vendor_breach_keywords"), news))
-    return f"{feed.get('name')} ({mode}) finds {hits}" + \
-        ("\n  -> DROPPED: no filter word, so this feed's filter doesn't let it through" if dropped else "")
+    priority = notifier.headline_priority(
+        title, text, lists, notifier.news_matcher(news.get("hot_keywords"), news),
+        notifier.news_matcher(news.get("vendor_breach_keywords"), news),
+        news.get("vendor_breach_extended", True) is not False)
+    min_priority = news.get("min_priority", "high")
+    if keyword_mode and priority == "normal" and not found["filter words"]:
+        why = "\n  -> DROPPED: no filter word, so this feed's filter doesn't let it through"
+    elif notifier.PRIORITY_RANK[priority] < notifier.PRIORITY_RANK.get(min_priority, 1):
+        why = (f"\n  -> DROPPED: it ranks {priority}, below news.min_priority ({min_priority}): "
+               "no hot word, and no vendor named with a breach word")
+    else:
+        why = ""
+    return f"{feed.get('name')} ({mode}) finds {hits}" + why
 
 
 def news_drill(headlines: list[str], cfg: dict, env: dict, http: notifier.Http, now: datetime, live: bool,
@@ -177,8 +186,8 @@ def news_drill(headlines: list[str], cfg: dict, env: dict, http: notifier.Http, 
     for error in errors:
         log(f"WARNING: {error}")
     if not alerts:
-        log("The notifier would NOT alert: a keyword-filtered feed only lets through a headline with one "
-            "of its filter words, or a core vendor plus a breach word.")
+        log("The notifier would NOT alert: see DROPPED above. News alerts need a hot word (zero-day, "
+            "exploited...) or a watchlist vendor named with a breach word, unless news.min_priority is normal.")
         return 0
     return send_drill(alerts, cfg, state, env, http, now, live, log)
 
@@ -221,7 +230,10 @@ def report_delivery(state: dict, env: dict, live: bool, failed: list, log: Calla
 
 def note_if_alexa_stays_silent(cfg: dict, alerts: list, log: Callable[[str], None]) -> None:
     min_priority = (cfg.get("alexa") or {}).get("min_priority", "urgent")
-    if all(notifier.PRIORITY_RANK[a.priority] < notifier.PRIORITY_RANK.get(min_priority, 2) for a in alerts):
+    never = notifier.never_announced(cfg)
+    if alerts and all(a.source in never for a in alerts):
+        log(f"Alexa: stays silent, because alexa.never_announce lists {', '.join(sorted({a.source for a in alerts}))}.")
+    elif all(notifier.PRIORITY_RANK[a.priority] < notifier.PRIORITY_RANK.get(min_priority, 2) for a in alerts):
         log(f"Alexa: stays silent, because Alexa only speaks {min_priority} alerts.")
 
 

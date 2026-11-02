@@ -141,6 +141,11 @@ def test_config():
                               "max_age_days": 7, "countries": [], "country_priority": "high",
                               "country_url": notifier.RANSOMWARE_LIVE_VICTIMS_URL}
     cfg["social"] = {"enabled": True, "hot_vendor_priority": "high", "accounts": []}
+    # The older, wider rules, so each test below shows one rule at a time; the stricter shipped
+    # settings have their own tests in StricterAlertTests.
+    cfg["cve"]["require_epss"] = False
+    cfg["news"].update(min_priority="normal", vendor_breach_extended=False)
+    cfg["alexa"]["never_announce"] = []
     return cfg
 
 
@@ -1187,6 +1192,128 @@ class KevAndNewsDrillTests(unittest.TestCase):
         code, http, out = self.run_drill("news", ["Nowhere Times: something happened"])
         self.assertEqual((code, http.posts), (1, []))
         self.assertIn("Feeds: News, DoublePulsar", out)
+
+
+class StricterAlertTests(unittest.TestCase):
+    """cve.require_epss, news.min_priority, news.vendor_breach_extended and alexa.never_announce."""
+
+    def strict(self):
+        cfg = test_config()
+        cfg["cve"]["require_epss"] = True
+        cfg["news"].update(min_priority="high", vendor_breach_extended=True)
+        cfg["alexa"]["never_announce"] = ["ransomware"]
+        return cfg
+
+    def second_run(self, cfg, news=NEWS_V2, atom=ATOM_V2, **http):
+        state = seeded_state()
+        alerts, errors, _ = run_once(state, FakeHttp(kev=KEV_V2, news=news, atom=atom, **http), cfg=cfg,
+                                     now=NOW + timedelta(minutes=30))
+        self.assertEqual(errors, [])
+        return {a.key if a.source != "news" else a.title: a.priority for a in alerts}
+
+    def test_shipped_config_uses_the_stricter_rules(self):
+        self.assertIs(CONFIG["cve"]["require_epss"], True)
+        self.assertEqual(CONFIG["news"]["min_priority"], "high")
+        self.assertIs(CONFIG["news"]["vendor_breach_extended"], True)
+        self.assertIn("never_announce", CONFIG["alexa"])
+
+    def test_shipped_config_ranks_real_november_headlines(self):
+        news = CONFIG["news"]
+        lists = notifier.build_watchlists(CONFIG, {}, None)
+        hot = notifier.news_matcher(news["hot_keywords"], news)
+        breach = notifier.news_matcher(news["vendor_breach_keywords"], news)
+        rank = lambda title: notifier.headline_priority(title, title, lists, hot, breach, True)  # noqa: E731
+        self.assertEqual(rank("Ivanti patches two more Connect Secure zero-days chained in attacks"), "urgent")
+        for title in ("Over 1,000 GitLab servers vulnerable to ongoing RCE attacks",
+                      "Synology warns of C3RB3R ransomware attacks targeting NAS devices",
+                      "Hackers exploit critical PHP flaw"):
+            self.assertEqual(rank(title), "high", title)
+        for title in ("Fintech platform Sageworks taken offline after suspected cyberattack",
+                      "Google Disrupts 1.3 Million-Device Android Botnet",
+                      "Weekly Recap: Critical CVEs, Linux DDoS Botnet, Device-Code Phishing"):
+            self.assertEqual(rank(title), "normal", title)  # dropped at news.min_priority: high
+
+    def test_cves_need_a_high_epss_and_kev_always_alerts(self):
+        got = self.second_run(self.strict())
+        cves = {k: v for k, v in got.items() if k.startswith("cve:")}
+        self.assertEqual(cves, {"cve:CVE-2026-50002": "high",      # EPSS 35%
+                                "cve:CVE-2026-50006": "urgent",    # core critical, EPSS 50%
+                                "cve:CVE-2026-50012": "urgent"})   # EPSS 60% on a critical
+        self.assertEqual((got["kev:CVE-2026-40001"], got["kev:CVE-2026-40002"]), ("urgent", "high"))
+
+    def test_news_below_high_is_dropped(self):
+        got = self.second_run(self.strict())
+        news = {k: v for k, v in got.items() if not k.startswith(("kev:", "cve:"))}
+        self.assertEqual(news, {"News: Fortinet warns of new FortiWeb zero-day exploited in attacks": "urgent"})
+
+    def test_exploited_wording_and_extended_vendor_breaches_get_through(self):
+        dp = story_rss([("Hackers exploit critical PHP flaw to hijack servers", "Read.", rfc822(0.1)),
+                        ("Salesforce confirms customer data stolen", "Read.", rfc822(0.1)),
+                        ("Retailer hacked after phishing campaign", "Read.", rfc822(0.1)),
+                        ("Our favourite conference talks this year", "Read.", rfc822(0.1))])
+        news = story_rss([("Windows servers under attack", "No filter word in this summary.", rfc822(0.1))])
+        got = self.second_run(self.strict(), news=news, atom=dp, nvd={"totalResults": 0, "vulnerabilities": []})
+        news_got = {k: v for k, v in got.items() if not k.startswith(("kev:", "cve:"))}
+        self.assertEqual(news_got, {
+            "DoublePulsar: Hackers exploit critical PHP flaw to hijack servers": "high",
+            "DoublePulsar: Salesforce confirms customer data stolen": "high",  # extended vendor
+            "News: Windows servers under attack": "urgent",                     # past the keyword filter
+        })
+        cfg = self.strict()
+        cfg["news"]["vendor_breach_extended"] = False
+        got = self.second_run(cfg, news=news, atom=dp, nvd={"totalResults": 0, "vulnerabilities": []})
+        self.assertNotIn("DoublePulsar: Salesforce confirms customer data stolen", got)
+
+    def test_social_posts_also_need_high(self):
+        cfg = self.strict()
+        cfg["social"]["accounts"] = [{"name": "Kevin Beaumont", "mastodon": "https://cyberplace.social/@GossiTheDog"}]
+        state = seeded_state()
+        run_once(state, FakeHttp(social={MASTODON: social_rss([])}), cfg=cfg, now=NOW + timedelta(minutes=30))
+        http = FakeHttp(social={MASTODON: social_rss([("FortiGate zero-day exploited in the wild", 0),
+                                                       ("Okta breached, customer data stolen", 0)])})
+        alerts, _, _ = run_once(state, http, cfg=cfg, now=NOW + timedelta(hours=1))
+        self.assertEqual([(a.title, a.priority) for a in alerts if a.source == "news"],
+                         [("Kevin Beaumont: FortiGate zero-day exploited in the wild", "high")])
+
+    def test_never_announce_keeps_ransomware_on_the_phone_only(self):
+        cfg = self.strict()
+        cfg["ransomware_live"].update(countries=["GB"], country_priority="urgent")
+        env = {"NTFY_TOPIC": "t", "RANSOMWARE_LIVE_API_KEY": "k", "VOICEMONKEY_TOKEN": "vm", "VOICEMONKEY_DEVICE": "e"}
+        state = seeded_state()
+        state["alexa_queue"] = [{"key": "ransomware:abc", "speech": "Held ransomware.", "priority": "urgent",
+                                 "queued": notifier.iso(NOW)}]
+        http = FakeHttp(ransomware=[victim("Northwind Traders")], nvd={"totalResults": 0, "vulnerabilities": []})
+        alerts, _, _ = run_once(state, http, cfg=cfg, env=env, now=NOW + timedelta(minutes=30))
+        self.assertEqual([a.priority for a in alerts if a.source == "ransomware"], ["urgent"])
+        ntfy = [p for u, p in http.posts if u == "https://ntfy.sh" and "Northwind" in p["title"]]
+        self.assertEqual([p["priority"] for p in ntfy], [5])  # still max priority on the phone
+        self.assertEqual([u for u, _ in http.posts if u == notifier.VOICEMONKEY_URL], [])
+        self.assertNotIn("alexa_queue", state)  # a held ransomware announcement is dropped too
+        # other sources are still spoken
+        kev = notifier.Alert(key="kev:CVE-1", title="t", body="", url="", priority="urgent", speech="KEV.",
+                             source="kev")
+        http = FakeHttp()
+        notifier.announce_on_alexa([kev], cfg, {"alexa": {"month": "2026-11", "count": 0}}, http, env, NOW, False,
+                                   lambda m: None)
+        self.assertEqual([p["speech"] for _, p in http.posts], ["KEV."])
+
+    def test_drills_explain_the_stricter_rules(self):
+        drill = load_drill()
+        lines = []
+        cfg = self.strict()
+        cfg["ransomware_live"].update(countries=["GB"], country_priority="urgent")
+        http = FakeHttp(ransomware=[victim("Northwind Traders")])
+        drill.ransomware_drill(cfg, {"NTFY_TOPIC": "t", "RANSOMWARE_LIVE_API_KEY": "k", "VOICEMONKEY_TOKEN": "v",
+                                     "VOICEMONKEY_DEVICE": "e"}, http, NOW, True, log=lines.append)
+        self.assertIn("alexa.never_announce lists ransomware", "\n".join(lines))
+        self.assertEqual([u for u, _ in http.posts if u == notifier.VOICEMONKEY_URL], [])
+        lines = []
+        code = drill.news_drill(["DoublePulsar: Our favourite conference talks this year"], self.strict(),
+                                {"NTFY_TOPIC": "t"}, FakeHttp(kev=KEV_V2), NOW, False, log=lines.append)
+        out = "\n".join(lines)
+        self.assertEqual(code, 0)
+        self.assertIn("DROPPED: it ranks normal, below news.min_priority (high)", out)
+        self.assertIn("would NOT alert", out)
 
 
 class HelperTests(unittest.TestCase):

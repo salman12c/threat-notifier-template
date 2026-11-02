@@ -500,12 +500,31 @@ def news_matcher(terms: Iterable[str] | None, news_cfg: dict) -> TermMatcher:
     return TermMatcher(terms or [], plurals=news_cfg.get("match_plurals", True) is not False)
 
 
-def vendor_breach_priority(title: str, lists: Watchlists, breach_words: TermMatcher) -> str | None:
+def vendor_breach_priority(title: str, lists: Watchlists, breach_words: TermMatcher,
+                           extended: bool = False) -> str | None:
     """A headline naming a core vendor together with a breach word (breached, hacked, stolen...):
-    high, or urgent when the vendor is on the msp_critical sub-list. None otherwise."""
-    if not breach_words.find(title) or not lists.core.find(title):
+    high, or urgent when the vendor is on the msp_critical sub-list. With extended, a vendor on
+    the extended list (or from KEV history) counts too, at high. None otherwise."""
+    if not breach_words.find(title):
         return None
-    return "urgent" if lists.msp_critical.find(title) else "high"
+    if lists.core.find(title):
+        return "urgent" if lists.msp_critical.find(title) else "high"
+    if extended and lists.extended.find(title):
+        return "high"
+    return None
+
+
+def headline_priority(title: str, text: str, lists: Watchlists, hot: TermMatcher, breach_words: TermMatcher,
+                      extended_breach: bool = False) -> str:
+    """A news item's priority. A hot word (zero-day, exploited...) in the headline is high, and
+    urgent when the headline or summary names a core vendor. A vendor-breach headline can raise
+    it (see vendor_breach_priority). Anything else is normal."""
+    hot_hits = hot.find(title)
+    priority = "urgent" if (hot_hits and lists.core.find(text)) else ("high" if hot_hits else "normal")
+    vendor_breach = vendor_breach_priority(title, lists, breach_words, extended_breach)
+    if vendor_breach and PRIORITY_RANK[vendor_breach] > PRIORITY_RANK[priority]:
+        priority = vendor_breach
+    return priority
 
 
 def same_story(a: dict, b: dict, min_shared_words: int = 3) -> bool:
@@ -876,6 +895,7 @@ def collect(cfg: dict, state: dict, http: Http, env: dict, now: datetime) -> tup
     urgent_epss = float(cve_cfg.get("urgent_epss", 0.50))
     watch_min = float(cve_cfg.get("watchlist_min_cvss", 9.0))
     require_unauth = bool(cve_cfg.get("watchlist_requires_unauthenticated", True))
+    require_epss = cve_cfg.get("require_epss", True) is not False
     watch_days = int(cve_cfg.get("watch_days", 14))
     max_published_age = timedelta(days=int(cve_cfg.get("max_published_age_days", 30)))
     max_window = timedelta(hours=int(cve_cfg.get("max_window_hours", 168)))
@@ -1016,8 +1036,8 @@ def collect(cfg: dict, state: dict, http: Http, env: dict, now: datetime) -> tup
                 reasons.append(f"core watchlist ({', '.join(core_hits)}), CVSS {watch_min:.1f}+{access}")
             elif critical and ext_hits:
                 reasons.append(f"watchlist ({', '.join(ext_hits)}), CVSS {watch_min:.1f}+{access}")
-            if not reasons:
-                continue
+            if not reasons or (require_epss and not high_epss):
+                continue  # with cve.require_epss, a watchlist critical alone doesn't alert
             if (high_epss and critical and core_hits) or very_high_epss:
                 priority = "urgent"
             elif high_epss or (critical and core_hits):
@@ -1037,6 +1057,8 @@ def collect(cfg: dict, state: dict, http: Http, env: dict, now: datetime) -> tup
     social_priority = (cfg.get("social") or {}).get("hot_vendor_priority", "high")
     if social_priority not in PRIORITY_RANK:
         social_priority = "high"
+    news_min = PRIORITY_RANK.get(news.get("min_priority", "high"), PRIORITY_RANK["high"])
+    extended_breach = news.get("vendor_breach_extended", True) is not False
     for feed in list(news.get("feeds") or []) + social_feeds(cfg, errors):
         url = feed.get("url")
         if not url or feed.get("enabled") is False:
@@ -1070,17 +1092,18 @@ def collect(cfg: dict, state: dict, http: Http, env: dict, now: datetime) -> tup
                 if not keywords.find(text):
                     continue
                 priority = social_priority if (hot.find(text) and lists.core.find(text)) else "normal"
+                if PRIORITY_RANK[priority] < news_min:
+                    continue  # below news.min_priority
                 item = dict(item, title=post_title(item))
                 news_candidates.append({"name": name, "ident": ident, "item": item, "priority": priority})
                 continue
             text = f"{item['title']} {item['summary']}"
-            vendor_breach = vendor_breach_priority(item["title"], lists, breach_words)
-            if keyword_mode and not keywords.find(text) and not vendor_breach:
+            priority = headline_priority(item["title"], text, lists, hot, breach_words, extended_breach)
+            # Hot and vendor-breach headlines always get past a feed's keyword filter.
+            if keyword_mode and priority == "normal" and not keywords.find(text):
                 continue
-            hot_hits = hot.find(item["title"])
-            priority = "urgent" if (hot_hits and lists.core.find(text)) else ("high" if hot_hits else "normal")
-            if vendor_breach and PRIORITY_RANK[vendor_breach] > PRIORITY_RANK[priority]:
-                priority = vendor_breach
+            if PRIORITY_RANK[priority] < news_min:
+                continue  # below news.min_priority
             news_candidates.append({"name": name, "ident": ident, "item": item, "priority": priority})
         record["seen"] = seen[-FEED_SEEN_LIMIT:]
     alerts.extend(group_news(news_candidates, news, state, lists, now))
@@ -1265,6 +1288,11 @@ def deliver(alerts: list[Alert], cfg: dict, state: dict, http: Http, env: dict, 
     return failed
 
 
+def never_announced(cfg: dict) -> set[str]:
+    """alexa.never_announce: alert sources (kev, cve, news, ransomware) that only go to the phone."""
+    return {str(s).strip().lower() for s in (cfg.get("alexa") or {}).get("never_announce") or []}
+
+
 def announce_on_alexa(spoken: list[Alert], cfg: dict, state: dict, http: Http, env: dict, now: datetime,
                       dry_run: bool, log: Callable[[str], None]) -> None:
     """One Alexa announcement per run. During quiet hours announcements are held in the
@@ -1272,8 +1300,11 @@ def announce_on_alexa(spoken: list[Alert], cfg: dict, state: dict, http: Http, e
     alexa_cfg = cfg.get("alexa") or {}
     use_queue = alexa_cfg.get("queue_during_quiet_hours", True)
     max_age = timedelta(hours=float(alexa_cfg.get("queue_max_age_hours", 24)))
-    queue = [q for q in state.get("alexa_queue") or [] if (parse_iso(q.get("queued")) or now) >= now - max_age]
-    new = [{"key": a.key, "speech": a.speech, "priority": a.priority, "queued": iso(now)} for a in spoken]
+    never = never_announced(cfg)  # alert sources Alexa never reads out, e.g. ransomware
+    queue = [q for q in state.get("alexa_queue") or [] if (parse_iso(q.get("queued")) or now) >= now - max_age
+             and str(q.get("key", "")).split(":", 1)[0] not in never]
+    new = [{"key": a.key, "speech": a.speech, "priority": a.priority, "queued": iso(now)} for a in spoken
+           if a.source not in never]
     if not new and not queue:
         state.pop("alexa_queue", None)
         return

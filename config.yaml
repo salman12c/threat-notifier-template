@@ -12,14 +12,17 @@ kev:
   urgent_if_critical: true      # a critical KEV entry is urgent whatever its EPSS
 
 # New CVEs from NVD, published in the last 30 days with CVSS of at least min_cvss.
-# A CVE alerts when EPSS reaches epss_threshold, or when it's critical (CVSS of at least
-# watchlist_min_cvss, network-exploitable with no login) on a watchlist vendor.
+# A CVE alerts when EPSS reaches epss_threshold. With require_epss: false, a critical (CVSS of
+# at least watchlist_min_cvss, network-exploitable with no login) on a watchlist vendor also
+# alerts without it.
 #   urgent: EPSS hit plus a critical on the core list, or EPSS at urgent_epss on any critical
-#   high:   EPSS hit on its own, or a critical on the core list
-#   normal: a critical on the extended list (arrives silently)
+#   high:   EPSS hit on its own (or, with require_epss: false, a critical on the core list)
+#   normal: only with require_epss: false, a critical on the extended list
 cve:
   min_cvss: 7.0
   epss_threshold: 0.10          # 10% chance of exploitation in the next 30 days
+  require_epss: true            # true: only CVEs at epss_threshold alert (plus every KEV entry);
+                                # false: watchlist criticals alert too, even with a low EPSS
   urgent_epss: 0.50
   watchlist_min_cvss: 9.0
   watchlist_requires_unauthenticated: true
@@ -339,7 +342,13 @@ news:
   # Plurals and "-es" forms count for hot_keywords, vendor_breach_keywords and keywords
   # (and the social filter), so "backdoor" also matches "backdoors". false: exact words only.
   match_plurals: true
-  # Words in a headline that make an item high priority, or urgent with a watchlist match.
+  # Which news items alert at all. high: only headlines with a hot word (exploited, zero-day...)
+  # or a vendor named with a breach word; everything else is dropped. normal: also every item
+  # that passes a feed's filter, at normal priority. urgent: only the urgent ones.
+  # Applies to Mastodon and Bluesky posts too.
+  min_priority: high
+  # Words in a headline that make an item high priority, or urgent with a core vendor named
+  # in the headline or summary. These headlines always get past a feed's keyword filter.
   hot_keywords:
     - zero-day
     - zero day
@@ -348,6 +357,12 @@ news:
     - exploited in the wild
     - exploited in attacks
     - under active exploitation
+    - exploited
+    - exploiting
+    - hackers exploit
+    - attackers exploit
+    - threat actors exploit
+    - under attack
     - mass exploitation
     - emergency patch
     - emergency update
@@ -358,6 +373,8 @@ news:
   # A headline naming a core watchlist vendor plus one of these words is high priority even
   # without zero-day wording, and urgent when the vendor is on watchlist.msp_critical.
   # Such headlines always get through, even from feeds filtered by keywords.
+  vendor_breach_extended: true  # true: a vendor on the extended list (or from KEV history) with a
+                                # breach word is high too; false: core vendors only
   vendor_breach_keywords:
     - breach
     - breached
@@ -368,6 +385,7 @@ news:
     - malicious update
     - backdoored
     - abused
+    - attack                    # also "attacks"; "cyberattack" doesn't count
   # Feeds set to "keywords" only alert when the title or summary has one of these.
   keywords:
     - zero-day
@@ -551,5 +569,8 @@ alexa:
   monthly_cap: 150
   reserve_for_vulnerabilities: 30  # the last 30 of monthly_cap are only spoken for KEV and CVE alerts;
                                    # other urgent alerts (news, ransomware) then go to the phone only
+  # Alert sources Alexa never reads out, however urgent: kev, cve, news, ransomware.
+  # They still reach the phone at their priority. [] lets Alexa speak every urgent alert.
+  never_announce: []
   voice: ""                     # optional, e.g. Brian or Amy
   chime: ""                     # optional soundbank URL from the Voice Monkey docs

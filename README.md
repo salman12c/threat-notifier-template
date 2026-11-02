@@ -1,14 +1,14 @@
 # Threat Notifier
 
-**Threat Notifier is a free, self-hosted way to stay on top of what's happening in security: what's being exploited, which ransomware groups are active in your country, and what the people who track this are saying.** Every 30 minutes it checks the sources that matter: CISA's Known Exploited Vulnerabilities, new CVEs from NVD scored by EPSS, ransomware leak sites, security news, and posts from well-known researchers on Mastodon and Bluesky. When something is exploited, critical or about a vendor you depend on, it pushes an alert to your phone, and the urgent ones are read out by Alexa. It's a personal-awareness tool for security people, MSP engineers and anyone who looks after IT, not a service for monitoring specific companies. It runs entirely on GitHub Actions: no server to maintain, no AI, no paid APIs, and every threshold, list and schedule lives in one file, `config.yaml`.
+**Threat Notifier is a free, self-hosted way to stay on top of what's happening in security: what's being exploited, which ransomware groups are active in your country, and what the people who track this are saying.** Every 30 minutes it checks the sources that matter: CISA's Known Exploited Vulnerabilities, new CVEs from NVD scored by EPSS, ransomware leak sites, security news, and posts from well-known researchers on Mastodon and Bluesky. When something is being exploited, or a notable vendor is breached or attacked, it pushes an alert to your phone, and the urgent ones are read out by Alexa. It's a personal-awareness tool for security people, MSP engineers and anyone who looks after IT, not a service for monitoring specific companies. It runs entirely on GitHub Actions: no server to maintain, no AI, no paid APIs, and every threshold, list and schedule lives in one file, `config.yaml`.
 
 **What you get**
 
-- **A phone alert within about 30 minutes** of a new KEV entry, a CVE that's likely to be exploited, or a zero-day headline about a vendor you use.
+- **A phone alert within about 30 minutes** of a new KEV entry, a CVE that's likely to be exploited, an exploitation or zero-day headline, or a notable vendor being breached.
 - **A running picture of ransomware in your country.** Every leak-site listing there arrives with the group's name and the victim's sector, so you can see which groups are active in your market and who they're hitting.
 - **Alexa announcements for the urgent ones**, with quiet hours so she never wakes you. Anything urgent overnight is held and read out in the morning.
 - **One alert per story.** When five outlets cover the same zero-day, you get one alert that lists the other four.
-- **Little noise.** A tiered vendor watchlist builds itself from CISA's history, EPSS filters out CVEs nobody is attacking, and keyword filters keep noisy feeds in check.
+- **Little noise.** Vulnerabilities alert only when they're in CISA's KEV catalogue or EPSS says exploitation is likely, and news alerts only when something is being exploited or a notable vendor is hit. A tiered vendor watchlist builds itself from CISA's history.
 - **A monthly check of every feed**, telling you which have broken or gone quiet and how to fix them.
 - **Privacy built in.** Secrets stay in GitHub, and ransomware victim names never appear in logs or on Alexa.
 
@@ -204,11 +204,13 @@ A comma-separated list of organisation names or domains, for example `Acme Holdi
 
 | Priority | What triggers it | Where it goes |
 | --- | --- | --- |
-| **Urgent** | A new KEV entry with known ransomware use, on a core-watchlist vendor, with EPSS 50%+, or critical (CVSS 9+, network, no login) · a core-vendor critical CVE with EPSS 10%+ · any critical with EPSS 50%+ · a zero-day or actively-exploited headline naming a core vendor · a breach headline naming an MSP-critical vendor · a watched organisation on a leak site · a leak-site victim in your countries, if you set `country_priority: urgent` | Phone at maximum priority **plus Alexa** (one announcement per run; held during quiet hours) |
-| **High** | Any other new KEV entry · a CVE at CVSS 7+ with EPSS 10%+ · a core-vendor critical · zero-day or actively-exploited headlines · a breach headline naming a core vendor · a researcher's post with a zero-day word and a core vendor · leak-site victims in your countries (`country_priority: high`, the default) | Phone, with sound |
-| **Normal** | A critical CVE on an extended-watchlist vendor · news and posts that match your keywords | Phone, with sound (or silent, with `normal_silent: true`) |
+| **Urgent** | A new KEV entry with known ransomware use, on a core-watchlist vendor, with EPSS 50%+, or critical (CVSS 9+, network, no login) · a core-vendor critical CVE with EPSS 10%+ · any critical with EPSS 50%+ · a zero-day or exploitation headline naming a core vendor · a breach or attack headline naming an MSP-critical vendor · a watched organisation on a leak site · a leak-site victim in your countries, if you set `country_priority: urgent` | Phone at maximum priority **plus Alexa** (one announcement per run; held during quiet hours), except for sources in `alexa.never_announce` |
+| **High** | Any other new KEV entry · a CVE at CVSS 7+ with EPSS 10%+ · zero-day or exploitation headlines (exploited, under attack…) · a breach or attack headline naming a core or extended vendor · a researcher's post with a zero-day word and a core vendor · leak-site victims in your countries (`country_priority: high`, the default) | Phone, with sound |
+| **Normal** | Nothing with the shipped settings. Only if you loosen them: a watchlist critical with a low EPSS (`cve.require_epss: false`), or news and posts that match your keywords (`news.min_priority: normal`) | Phone, with sound (or silent, with `normal_silent: true`) |
 
 "Critical" means CVSS 9.0 or higher, exploitable over the network with no login. All of these thresholds are in `config.yaml`.
+
+**What gets through, and what doesn't.** A vulnerability alerts when it's in CISA's KEV catalogue (exploitation confirmed) or its EPSS reaches 10% (`cve.require_epss: true`); a critical on a watchlist vendor raises the priority but doesn't alert by itself. A news item or researcher's post alerts only at high or above (`news.min_priority: high`): an exploitation or zero-day headline, or a watchlist vendor named with a breach or attack word. General news, research write-ups, weekly recaps and hacktivism stories are dropped. On real feeds over two days in November 2026, that turned 25 matching news items into 4 alerts.
 
 ---
 
@@ -222,6 +224,7 @@ By default only **urgent** alerts reach Alexa; high and normal alerts go to your
 | Ransomware victims in your countries on the phone only | `ransomware_live.country_priority: high` (the default) |
 | Alexa announces every ransomware victim in your countries | `ransomware_live.country_priority: urgent` (about 40 announcements a month for the UK) |
 | Watched organisations on leak sites on the phone only | `ransomware_live.priority: high` |
+| No ransomware on Alexa at all, whatever its priority | `alexa.never_announce: [ransomware]` (the phone still gets it; also takes `kev`, `cve` and `news`) |
 | Researchers' posts never on Alexa | `social.hot_vendor_priority: high` (the default; `urgent` makes Alexa read them) |
 | Alexa speaks high alerts too | `alexa.min_priority: high` (uses the monthly allowance much faster) |
 | Normal alerts arrive without sound | `delivery.normal_silent: true` |
@@ -292,10 +295,10 @@ The watchlist decides when a CVE or headline is loud. It has layers, so you don'
 
 | Layer | What it is | Effect |
 | --- | --- | --- |
-| **From KEV history** (automatic) | Every vendor CISA has listed at least `auto_min_kev_entries` (5) times, refreshed each run | Criticals arrive at normal priority |
-| **`core`** | Edge devices, VPNs, identity, remote access and RMM, hypervisors, backup, file transfer, AI coding tools with access to developer machines (Anthropic, Claude Code, Cursor), the biggest targets | KEV entries are urgent; criticals are high, or urgent with high EPSS; zero-day headlines are urgent |
-| **`msp_critical`** (part of core) | RMM, PSA, remote access and identity providers whose breach reaches every client at once (ConnectWise, Kaseya, NinjaOne, TeamViewer, Okta…) | A breach headline naming one is urgent |
-| **`extended`** | Everything else worth knowing about: productivity, other dev and AI tools, web stack, SaaS, security vendors | Criticals arrive at normal priority |
+| **From KEV history** (automatic) | Every vendor CISA has listed at least `auto_min_kev_entries` (5) times, refreshed each run | A breach or attack headline naming one is high |
+| **`core`** | Edge devices, VPNs, identity, remote access and RMM, hypervisors, backup, file transfer, AI coding tools with access to developer machines (Anthropic, Claude Code, Cursor), the biggest targets | KEV entries are urgent; criticals with EPSS 10%+ are urgent; zero-day headlines are urgent; breach or attack headlines are high |
+| **`msp_critical`** (part of core) | RMM, PSA, remote access and identity providers whose breach reaches every client at once (ConnectWise, Kaseya, NinjaOne, TeamViewer, Okta…) | A breach or attack headline naming one is urgent |
+| **`extended`** | Everything else worth knowing about: productivity, other dev and AI tools, web stack, SaaS, security vendors | A breach or attack headline naming one is high (`news.vendor_breach_extended`) |
 | **`ignore`** | Sources that flood NVD with criticals nobody runs (student PHP projects, consumer routers) | Dropped (never blocks KEV alerts) |
 
 Names match as whole words, case doesn't matter. Edit the lists in `config.yaml` to match what you and your clients actually run.
@@ -325,7 +328,8 @@ news:
 ```
 
 - **Adding a feed:** add a `name` and `url` (RSS or Atom). A new feed starts silently: its first run only notes what's already there.
-- **Priority:** a headline with a `hot_keywords` word (zero-day, actively exploited, emergency patch…) is high, or urgent when it names a core vendor. A headline naming a core vendor plus a `vendor_breach_keywords` word (breached, hacked, backdoored, abused…) is high, or urgent for MSP-critical vendors, and always gets through the keyword filter.
+- **What alerts:** only items at `news.min_priority` (`high`) or above; the rest are dropped. Set it to `normal` to get every item that passes a feed's filter.
+- **Priority:** a headline with a `hot_keywords` word (zero-day, exploited, exploiting, under attack, emergency patch…) is high, or urgent when it names a core vendor. A headline naming a watchlist vendor plus a `vendor_breach_keywords` word (breached, hacked, backdoored, abused, attack…) is high, or urgent for MSP-critical vendors; with `vendor_breach_extended: false` only core vendors count. Both kinds always get through a feed's keyword filter. "Attack" also matches "attacks" but not "cyberattack".
 - **Plurals count:** with `news.match_plurals: true` (the default), `backdoor` also matches "backdoors" and `breach` matches "breaches", in every news and social word list. Vendor names are always matched exactly.
 - **One alert per story:** headlines that share a CVE ID, or the same vendor plus at least 3 significant words, are grouped into one alert that ends "Also covered by: …". Stories are remembered for 24 hours so a late outlet doesn't alert again.
 - **Reddit** sometimes blocks GitHub's servers. If r/sysadmin keeps failing, remove it.
@@ -371,7 +375,7 @@ social:
 ```
 
 - **Check an account first** by opening its feed in a browser: a Mastodon profile's feed is its URL plus `.rss`; a Bluesky profile's is `https://bsky.app/profile/HANDLE/rss`.
-- **Every post must match your keywords**, so posts about lunch don't get through. They stay normal priority unless they contain a hot keyword *and* a core vendor.
+- **Every post must match your keywords**, so posts about lunch don't get through. They alert only if they contain a hot keyword *and* a core vendor (at `hot_vendor_priority`); the rest are normal and dropped while `news.min_priority` is `high`.
 - **Posts have no headline**, so the alert title is the first 140 characters and the body is the post, with a link to it.
 - **X (Twitter) and LinkedIn** have no free feeds, so people who only post there can't be followed.
 
@@ -414,6 +418,7 @@ Edit `config.yaml`, commit, and the next run uses it. Defaults are what ships in
 | --- | --- | --- |
 | `min_cvss` | `7.0` | Ignore CVEs scored below this |
 | `epss_threshold` | `0.10` | EPSS (chance of exploitation in 30 days) that makes a CVE alert |
+| `require_epss` | `true` | Only CVEs at `epss_threshold` alert; `false` also alerts on watchlist criticals with a low EPSS (core: high, extended: normal) |
 | `urgent_epss` | `0.50` | EPSS that makes any critical urgent |
 | `watchlist_min_cvss` | `9.0` | What counts as "critical" for watchlist vendors |
 | `watchlist_requires_unauthenticated` | `true` | Criticals must be exploitable over the network with no login |
@@ -440,8 +445,10 @@ Edit `config.yaml`, commit, and the next run uses it. Defaults are what ships in
 | `group_stories` | `true` | One alert per story across outlets |
 | `story_window_hours` | `24` | How long a story is remembered |
 | `story_min_shared_words` | `3` | Significant words two headlines must share (besides the vendor) to count as one story |
-| `hot_keywords` | zero-day, actively exploited, emergency patch… | Make a headline high, or urgent with a core vendor |
-| `vendor_breach_keywords` | breach, hacked, stolen, backdoored, abused… | With a core vendor in the headline: high (urgent for MSP-critical) |
+| `min_priority` | `high` | Lowest priority a news item or post needs to alert; `normal` lets every filtered item through |
+| `hot_keywords` | zero-day, exploited, under attack, emergency patch… | Make a headline high, or urgent with a core vendor; always pass the keyword filter |
+| `vendor_breach_keywords` | breach, hacked, stolen, backdoored, abused, attack… | With a watchlist vendor in the headline: high (urgent for MSP-critical) |
+| `vendor_breach_extended` | `true` | Extended and KEV-history vendors count for breach headlines too; `false`: core only |
 | `match_plurals` | `true` | Words in the news and social lists also match with "s" or "es" on the end |
 | `keywords` | 30 security words | The filter for feeds set to `filter: keywords` |
 | `feeds[]` | 13 feeds | Each has `name`, `url`, `filter` (`all` or `keywords`), optional `keywords` and `enabled` |
@@ -498,6 +505,7 @@ Edit `config.yaml`, commit, and the next run uses it. Defaults are what ships in
 | `queue_max_age_hours` | `24` | Drop held announcements older than this |
 | `monthly_cap` | `150` | Maximum announcements a month |
 | `reserve_for_vulnerabilities` | `30` | The last this-many of `monthly_cap` are only spoken for KEV and CVE alerts |
+| `never_announce` | `[]` | Alert sources Alexa never reads out, however urgent: `kev`, `cve`, `news`, `ransomware` |
 | `voice` | `""` | Optional Alexa voice, for example `Brian` or `Amy` |
 | `chime` | `""` | Optional sound before speaking, from Voice Monkey's sound library |
 
@@ -514,8 +522,8 @@ All of these are under the **Actions** tab, **Run workflow**.
 | threat-notifier | `run` | A normal run, the same as the schedule |
 | drill | `cve` + a CVE ID | Sends one real CVE as if NVD had just published it, labelled DRILL |
 | drill | `kev` + a CVE ID | Sends one real KEV entry as if CISA had just added it, labelled DRILL |
-| drill | `news` + headlines | Sends headlines as if your feeds had just posted them: `Feed name: headline`, several separated by `||`. The log shows which rule words were found, and says DROPPED when a feed's filter wouldn't let one through |
-| drill | `ransomware` | Sends one real recent listing from your countries, labelled DRILL (Alexa reads it only with `country_priority: urgent`) |
+| drill | `news` + headlines | Sends headlines as if your feeds had just posted them: `Feed name: headline`, several separated by `||`. The log shows which rule words were found, and says DROPPED when a feed's filter wouldn't let one through or it ranks below `news.min_priority` |
+| drill | `ransomware` | Sends one real recent listing from your countries, labelled DRILL (Alexa reads it only with `country_priority: urgent`, and not if `alexa.never_announce` lists ransomware) |
 | feed-check | send on/off | Tests every feed now |
 
 Drills never touch the saved state. Tick **ignore quiet hours** to hear Alexa at night.
